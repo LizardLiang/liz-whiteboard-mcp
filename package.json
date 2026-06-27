@@ -1,0 +1,26 @@
+{
+  "name": "liz-whiteboard-mcp",
+  "version": "0.1.0",
+  "description": "MCP stdio server for liz-whiteboard ER diagram tool",
+  "type": "module",
+  "scripts": {
+    "start": "dotenv -e .env.local -- bun run src/mcp/index.ts",
+    "test": "dotenv -e .env.local -- vitest run --config vitest.config.mcp.ts",
+    "db:generate": "dotenv -e .env.local -- prisma generate --no-engine",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@prisma/client": "^6.16.3",
+    "prisma": "^6.16.3",
+    "socket.io-client": "^4.8.1",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "dotenv-cli": "^10.0.0",
+    "typescript": "^5.7.2",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^4.0.4"
+  }
+}

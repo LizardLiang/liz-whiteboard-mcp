@@ -1,0 +1,236 @@
+// prisma/schema.prisma
+// Database schema for Collaborative ER Diagram Whiteboard
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ============================================================================
+// Auth Models
+// ============================================================================
+
+enum ProjectRole {
+  VIEWER
+  EDITOR
+  ADMIN
+}
+
+model User {
+  id                   String    @id @default(uuid())
+  username             String    @unique @db.VarChar(50)
+  email                String    @unique @db.VarChar(255)
+  passwordHash         String    @db.Text
+  failedLoginAttempts  Int       @default(0)
+  lockedUntil          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  sessions              Session[]
+  ownedProjects         Project[]             @relation("ProjectOwner")
+  projectMemberships    ProjectMember[]
+  collaborationSessions CollaborationSession[]
+
+  @@index([email])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique @db.VarChar(64)
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  projectId String
+  userId    String
+  role      ProjectRole
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+// ============================================================================
+// Project
+// ============================================================================
+
+model Project {
+  id          String      @id @default(uuid())
+  name        String      @db.VarChar(255)
+  description String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Auth: nullable FK to User (nullable until first-user migration assigns existing projects)
+  ownerId     String?     @db.Uuid
+
+  folders     Folder[]
+  whiteboards Whiteboard[]
+  members     ProjectMember[]
+
+  owner User? @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([ownerId])
+}
+
+model Folder {
+  id             String   @id @default(uuid())
+  name           String   @db.VarChar(255)
+  projectId      String
+  parentFolderId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentFolder  Folder?      @relation("FolderHierarchy", fields: [parentFolderId], references: [id], onDelete: Cascade)
+  childFolders  Folder[]     @relation("FolderHierarchy")
+  whiteboards   Whiteboard[]
+
+  @@index([projectId])
+  @@index([parentFolderId])
+}
+
+model Whiteboard {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(255)
+  projectId   String
+  folderId    String?
+  canvasState Json?
+  textSource  String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder        Folder?                @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  tables        DiagramTable[]
+  relationships Relationship[]
+  sessions      CollaborationSession[]
+
+  @@index([projectId])
+  @@index([folderId])
+  @@index([updatedAt])
+}
+
+model DiagramTable {
+  id           String   @id @default(uuid())
+  whiteboardId String
+  name         String   @db.VarChar(255)
+  description  String?  @db.Text
+  positionX    Float
+  positionY    Float
+  width        Float?
+  height       Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  whiteboard            Whiteboard     @relation(fields: [whiteboardId], references: [id], onDelete: Cascade)
+  columns               Column[]
+  outgoingRelationships Relationship[] @relation("SourceTable")
+  incomingRelationships Relationship[] @relation("TargetTable")
+
+  @@unique([whiteboardId, name])
+  @@index([whiteboardId])
+}
+
+model Column {
+  id           String   @id @default(uuid())
+  tableId      String
+  name         String   @db.VarChar(255)
+  dataType     String   @db.VarChar(50)
+  isPrimaryKey Boolean  @default(false)
+  isForeignKey Boolean  @default(false)
+  isUnique     Boolean  @default(false)
+  isNullable   Boolean  @default(false)
+  description  String?  @db.Text
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  table               DiagramTable   @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  sourceRelationships Relationship[] @relation("SourceColumn")
+  targetRelationships Relationship[] @relation("TargetColumn")
+
+  @@unique([tableId, name])
+  @@index([tableId])
+  @@index([order])
+}
+
+enum Cardinality {
+  ONE_TO_ONE
+  ONE_TO_MANY
+  MANY_TO_ONE
+  MANY_TO_MANY
+  ZERO_TO_ONE
+  ZERO_TO_MANY
+  SELF_REFERENCING
+  MANY_TO_ZERO_OR_ONE
+  MANY_TO_ZERO_OR_MANY
+  ZERO_OR_ONE_TO_ONE
+  ZERO_OR_ONE_TO_MANY
+  ZERO_OR_ONE_TO_ZERO_OR_ONE
+  ZERO_OR_ONE_TO_ZERO_OR_MANY
+  ZERO_OR_MANY_TO_ONE
+  ZERO_OR_MANY_TO_MANY
+  ZERO_OR_MANY_TO_ZERO_OR_ONE
+  ZERO_OR_MANY_TO_ZERO_OR_MANY
+}
+
+model Relationship {
+  id             String      @id @default(uuid())
+  whiteboardId   String
+  sourceTableId  String
+  targetTableId  String
+  sourceColumnId String
+  targetColumnId String
+  cardinality    Cardinality
+  label          String?     @db.VarChar(255)
+  routingPoints  Json?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  whiteboard   Whiteboard   @relation(fields: [whiteboardId], references: [id], onDelete: Cascade)
+  sourceTable  DiagramTable @relation("SourceTable", fields: [sourceTableId], references: [id], onDelete: Cascade)
+  targetTable  DiagramTable @relation("TargetTable", fields: [targetTableId], references: [id], onDelete: Cascade)
+  sourceColumn Column       @relation("SourceColumn", fields: [sourceColumnId], references: [id], onDelete: Cascade)
+  targetColumn Column       @relation("TargetColumn", fields: [targetColumnId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceColumnId, targetColumnId])
+  @@index([whiteboardId])
+  @@index([sourceTableId])
+  @@index([targetTableId])
+}
+
+model CollaborationSession {
+  id             String   @id @default(uuid())
+  whiteboardId   String
+  userId         String
+  socketId       String   @unique
+  cursor         Json?
+  lastActivityAt DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  whiteboard Whiteboard @relation(fields: [whiteboardId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([whiteboardId])
+  @@index([lastActivityAt])
+  @@index([userId])
+}
