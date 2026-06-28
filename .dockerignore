@@ -1,0 +1,18 @@
+# Go build needs only go.mod/go.sum + cmd/ + internal/.
+# Exclude the TS reference sources, tooling, build artifacts, and secrets.
+.git
+.claude
+*.md
+liz-whiteboard-mcp
+data
+deploy
+docker-compose.yml
+src
+prisma
+node_modules
+bun.lock
+package.json
+tsconfig.json
+vitest.config.mcp.ts
+.env
+.env.*

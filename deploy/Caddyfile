@@ -1,0 +1,28 @@
+# Single public origin (:8080) fronting both the app/AS and the MCP server.
+# Clients only ever talk to one domain — no separate ports.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	# MCP Resource Server: the streamable endpoint and its Protected Resource
+	# Metadata (RFC 9728) live on the MCP server.
+	@mcp path /mcp /mcp/*
+	@prm path /.well-known/oauth-protected-resource
+
+	handle @mcp {
+		reverse_proxy mcp:3011
+	}
+	handle @prm {
+		reverse_proxy mcp:3011
+	}
+
+	# Everything else → the app / Authorization Server:
+	#   /authorize /token  (OAuth)
+	#   /.well-known/oauth-authorization-server  /.well-known/jwks.json
+	#   /api/*  /socket.io/*  and the web UI.
+	handle {
+		reverse_proxy app:3000
+	}
+}

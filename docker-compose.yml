@@ -1,0 +1,66 @@
+# Full liz-whiteboard stack behind ONE public origin (http://localhost:8080).
+#
+#   http://localhost:8080/            → app + Authorization Server (/authorize, /token, JWKS)
+#   http://localhost:8080/mcp         → MCP Resource Server (bearer-protected)
+#   http://localhost:8080/.well-known/oauth-protected-resource → MCP PRM
+#
+# The app and MCP never expose separate public ports — Caddy fronts both.
+# Bring it up with deploy/run.sh (it provisions the signing key + client secret),
+# or set MCP_CLIENT_SECRET, OAUTH_SIGNING_KEY_PRIVATE, OAUTH_SIGNING_KEY_KID yourself.
+name: liz-whiteboard-stack
+
+services:
+  app: # liz-whiteboard: web UI + OAuth Authorization Server + collaboration Socket.IO
+    build:
+      context: ../liz-whiteboard
+    environment:
+      OAUTH_ISSUER: http://localhost:8080
+      MCP_RESOURCE_URI: http://localhost:8080/mcp
+      COLLAB_RESOURCE_URI: http://localhost:8080
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
+      OAUTH_SIGNING_KEY_FILE: /run/oauth-private.pem
+      OAUTH_SIGNING_KEY_KID: ${OAUTH_SIGNING_KEY_KID:-as-key}
+    volumes:
+      - appdata:/app/data
+      - ./deploy/oauth-private.pem:/run/oauth-private.pem:ro
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/.well-known/jwks.json').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mcp: # liz-whiteboard-mcp: OAuth Resource Server (this repo)
+    build:
+      context: .
+    environment:
+      DATABASE_URL: file:/data/app.db          # same SQLite file the app writes (shared volume)
+      MCP_LISTEN_ADDR: 0.0.0.0:3011
+      OAUTH_ISSUER: http://localhost:8080       # public issuer (validated in iss/PRM)
+      MCP_RESOURCE_URI: http://localhost:8080/mcp
+      OAUTH_JWKS_URL: http://app:3000/.well-known/jwks.json   # internal JWKS fetch (split-horizon)
+      LIZ_SOCKET_URL: ws://app:3000             # internal collab socket
+      COLLAB_TOKEN_URL: http://app:3000/api/collab-token       # internal collab-token mint
+      COLLAB_RESOURCE_URI: http://localhost:8080
+      MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
+    volumes:
+      - appdata:/data
+    depends_on:
+      app:
+        condition: service_healthy
+    expose:
+      - "3011"
+
+  proxy: # single public origin
+    image: caddy:2
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - app
+      - mcp
+
+volumes:
+  appdata:

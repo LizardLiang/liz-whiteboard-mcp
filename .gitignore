@@ -6,3 +6,7 @@ prisma/generated/
 coverage/
 *.log
 .DS_Store
+
+# Go build output
+/liz-whiteboard-mcp
+deploy/oauth-private.pem
