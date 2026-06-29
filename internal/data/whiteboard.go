@@ -47,15 +47,27 @@ func FindWhiteboardsByProjectID(ctx context.Context, projectID string) ([]Whiteb
 }
 
 // ListTableRectsByWhiteboardID returns the bounding box of every table in a
-// whiteboard. NULL width/height default to 280/220 to match the grid constants.
+// whiteboard, used for non-overlapping placement of new tables.
+//
+// Tables are content-sized by the frontend: width is `max-content` (min 220px)
+// and height grows with column count (the canvas renders each column row at
+// COLUMN_ROW_HEIGHT = 28px; see TableNode in liz-whiteboard). The DB stores
+// width/height as NULL for auto-sized tables, so a fixed 280×220 box badly
+// under-estimates a tall table (e.g. a 17-column table renders ~600px tall) and
+// new tables get dropped on top of it. When height is NULL we therefore estimate
+// it from the live column count: header/padding (~80px) + 30px per column,
+// floored at the grid row height (220). 30px/column (vs the exact 28) adds a
+// small safety margin so the estimate never falls short of the rendered height.
 func ListTableRectsByWhiteboardID(ctx context.Context, whiteboardID string) ([]positioning.Rect, error) {
-	// COALESCE defaults must match colW/rowH in internal/positioning/positioning.go.
+	// COALESCE width default matches colW in internal/positioning/positioning.go.
 	rows, err := db.Pool().Query(ctx,
-		`SELECT "positionX", "positionY",
-                COALESCE(width,  280.0),
-                COALESCE(height, 220.0)
-           FROM "DiagramTable"
-          WHERE "whiteboardId" = $1`, whiteboardID)
+		`SELECT t."positionX", t."positionY",
+                COALESCE(t.width, 280.0),
+                COALESCE(t.height, max(220.0, 80.0 + 30.0 * count(c.id)))
+           FROM "DiagramTable" t
+           LEFT JOIN "Column" c ON c."tableId" = t.id
+          WHERE t."whiteboardId" = $1
+          GROUP BY t.id`, whiteboardID)
 	if err != nil {
 		return nil, err
 	}
