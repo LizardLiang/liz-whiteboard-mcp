@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/db"
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/positioning"
 )
 
 // inPlaceholders builds an `IN (?, ?, …)` clause body and the matching []any
@@ -45,12 +46,29 @@ func FindWhiteboardsByProjectID(ctx context.Context, projectID string) ([]Whiteb
 	return out, rows.Err()
 }
 
-// CountTablesByWhiteboardID returns the number of tables in a whiteboard.
-func CountTablesByWhiteboardID(ctx context.Context, whiteboardID string) (int, error) {
-	var count int
-	err := db.Pool().QueryRow(ctx,
-		`SELECT COUNT(*) FROM "DiagramTable" WHERE "whiteboardId" = $1`, whiteboardID).Scan(&count)
-	return count, err
+// ListTableRectsByWhiteboardID returns the bounding box of every table in a
+// whiteboard. NULL width/height default to 280/220 to match the grid constants.
+func ListTableRectsByWhiteboardID(ctx context.Context, whiteboardID string) ([]positioning.Rect, error) {
+	// COALESCE defaults must match colW/rowH in internal/positioning/positioning.go.
+	rows, err := db.Pool().Query(ctx,
+		`SELECT "positionX", "positionY",
+                COALESCE(width,  280.0),
+                COALESCE(height, 220.0)
+           FROM "DiagramTable"
+          WHERE "whiteboardId" = $1`, whiteboardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []positioning.Rect
+	for rows.Next() {
+		var r positioning.Rect
+		if err := rows.Scan(&r.X, &r.Y, &r.W, &r.H); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // ListWhiteboards returns the whiteboards in a project with a table count for

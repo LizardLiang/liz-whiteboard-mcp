@@ -99,7 +99,7 @@ func registerCreateTable(s *mcp.Server) {
 			posY = *in.PositionY
 		}
 		if in.PositionX == nil || in.PositionY == nil {
-			dx, dy, err := positioning.ComputeDefaultPosition(ctx, in.WhiteboardID, data.CountTablesByWhiteboardID)
+			dx, dy, err := positioning.ComputeDefaultPosition(ctx, in.WhiteboardID, data.ListTableRectsByWhiteboardID)
 			if err != nil {
 				return fail(err)
 			}
