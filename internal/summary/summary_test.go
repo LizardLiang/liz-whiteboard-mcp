@@ -11,6 +11,8 @@ import (
 
 func strptr(s string) *string { return &s }
 
+func f64ptr(v float64) *float64 { return &v }
+
 func makeColumn(id, tableID, name, dataType string, pk, fk, uniq, null bool) data.Column {
 	return data.Column{
 		ID: id, TableID: tableID, Name: name, DataType: dataType,
@@ -27,7 +29,7 @@ func TestFormatSchemaSummary_CompactFormat(t *testing.T) {
 		Cardinality: "ONE_TO_MANY",
 	}
 	t1 := data.TableWithRelations{
-		DiagramTable: data.DiagramTable{ID: "table-id-1", WhiteboardID: "wb-id", Name: "users", PositionX: 100, PositionY: 100},
+		DiagramTable: data.DiagramTable{ID: "table-id-1", WhiteboardID: "wb-id", Name: "users", PositionX: f64ptr(100), PositionY: f64ptr(100)},
 		Columns: []data.Column{
 			makeColumn("col-id-1", "table-id-1", "id", "uuid", true, false, false, false),
 			makeColumn("col-id-2", "table-id-1", "email", "varchar", false, false, false, false),

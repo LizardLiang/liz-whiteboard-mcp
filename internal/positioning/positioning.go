@@ -2,6 +2,10 @@
 // using a deterministic slot-by-count 4-column grid.
 //
 // Ported from src/mcp/positioning.ts.
+//
+// TODO: dead code after client-side position resolution (see tactical plan
+// client-side-table-position-resolution.md). registerCreateTable no longer
+// calls ComputeDefaultPosition; removal is a separate cleanup task.
 package positioning
 
 import "context"

@@ -10,7 +10,6 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/auth"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
-	"github.com/LizardLiang/liz-whiteboard-mcp/internal/positioning"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
@@ -49,7 +48,7 @@ func registerCreateTable(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "create_table",
 		Description: "Create a new table in a whiteboard. If positionX/positionY are omitted, " +
-			"the server assigns a non-overlapping grid position.",
+			"the table is created without a position; the client will resolve the position on first load.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createTableInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("whiteboardId", in.WhiteboardID); e != nil {
 			return fail(e)
@@ -90,31 +89,18 @@ func registerCreateTable(s *mcp.Server) {
 			return fail(err)
 		}
 
-		// Fill default position if either axis is omitted.
-		var posX, posY float64
+		// Build the payload. Position keys are only included when explicitly
+		// provided by the caller. When omitted, the server stores NULL and the
+		// first browser client to load the whiteboard resolves the position via
+		// React Flow's measured dimensions (client-side position resolution).
+		payload := map[string]any{
+			"name": in.Name,
+		}
 		if in.PositionX != nil {
-			posX = *in.PositionX
+			payload["positionX"] = *in.PositionX
 		}
 		if in.PositionY != nil {
-			posY = *in.PositionY
-		}
-		if in.PositionX == nil || in.PositionY == nil {
-			dx, dy, err := positioning.ComputeDefaultPosition(ctx, in.WhiteboardID, data.ListTableRectsByWhiteboardID)
-			if err != nil {
-				return fail(err)
-			}
-			if in.PositionX == nil {
-				posX = dx
-			}
-			if in.PositionY == nil {
-				posY = dy
-			}
-		}
-
-		payload := map[string]any{
-			"name":      in.Name,
-			"positionX": posX,
-			"positionY": posY,
+			payload["positionY"] = *in.PositionY
 		}
 		if in.Description != nil {
 			payload["description"] = *in.Description
@@ -229,8 +215,17 @@ func registerUpdateTable(s *mcp.Server) {
 		}
 
 		if posChanged {
-			finalX := table.PositionX
-			finalY := table.PositionY
+			// Merge partial position update with current DB values.
+			// table.PositionX/Y are *float64 (nullable) after client-side position
+			// resolution was introduced. Treat NULL as 0 when only one axis is
+			// overridden (unusual, but keep behaviour deterministic).
+			var finalX, finalY float64
+			if table.PositionX != nil {
+				finalX = *table.PositionX
+			}
+			if table.PositionY != nil {
+				finalY = *table.PositionY
+			}
 			if in.PositionX != nil {
 				finalX = *in.PositionX
 			}

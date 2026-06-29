@@ -99,13 +99,18 @@ type Whiteboard struct {
 }
 
 // DiagramTable mirrors the Prisma DiagramTable model.
+// PositionX and PositionY are nullable (*float64) to support client-side
+// position resolution: the DB stores NULL when a table has no assigned position
+// yet (e.g. created by the MCP server without an explicit position). The first
+// browser client to load the whiteboard measures rendered dimensions and writes a
+// non-overlapping position back via table:move with isInit=true.
 type DiagramTable struct {
 	ID           string    `json:"id"`
 	WhiteboardID string    `json:"whiteboardId"`
 	Name         string    `json:"name"`
 	Description  *string   `json:"description"`
-	PositionX    float64   `json:"positionX"`
-	PositionY    float64   `json:"positionY"`
+	PositionX    *float64  `json:"positionX"`
+	PositionY    *float64  `json:"positionY"`
 	Width        *float64  `json:"width"`
 	Height       *float64  `json:"height"`
 	CreatedAt    Timestamp `json:"createdAt"`

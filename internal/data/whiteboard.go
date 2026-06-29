@@ -58,6 +58,10 @@ func FindWhiteboardsByProjectID(ctx context.Context, projectID string) ([]Whiteb
 // it from the live column count: header/padding (~80px) + 30px per column,
 // floored at the grid row height (220). 30px/column (vs the exact 28) adds a
 // small safety margin so the estimate never falls short of the rendered height.
+//
+// TODO: dead code after client-side position resolution (see tactical plan
+// client-side-table-position-resolution.md). registerCreateTable no longer
+// calls this function; removal is a separate cleanup task.
 func ListTableRectsByWhiteboardID(ctx context.Context, whiteboardID string) ([]positioning.Rect, error) {
 	// COALESCE width default matches colW in internal/positioning/positioning.go.
 	rows, err := db.Pool().Query(ctx,
