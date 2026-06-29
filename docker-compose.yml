@@ -14,9 +14,9 @@ services:
     build:
       context: ../liz-whiteboard
     environment:
-      OAUTH_ISSUER: http://localhost:8080
-      MCP_RESOURCE_URI: http://localhost:8080/mcp
-      COLLAB_RESOURCE_URI: http://localhost:8080
+      OAUTH_ISSUER: ${PUBLIC_ORIGIN:-http://localhost:8080}
+      MCP_RESOURCE_URI: ${PUBLIC_ORIGIN:-http://localhost:8080}/mcp
+      COLLAB_RESOURCE_URI: ${PUBLIC_ORIGIN:-http://localhost:8080}
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
       OAUTH_SIGNING_KEY_FILE: /run/oauth-private.pem
       OAUTH_SIGNING_KEY_KID: ${OAUTH_SIGNING_KEY_KID:-as-key}
@@ -37,12 +37,12 @@ services:
     environment:
       DATABASE_URL: file:/data/app.db          # same SQLite file the app writes (shared volume)
       MCP_LISTEN_ADDR: 0.0.0.0:3011
-      OAUTH_ISSUER: http://localhost:8080       # public issuer (validated in iss/PRM)
-      MCP_RESOURCE_URI: http://localhost:8080/mcp
+      OAUTH_ISSUER: ${PUBLIC_ORIGIN:-http://localhost:8080}       # public issuer (validated in iss/PRM)
+      MCP_RESOURCE_URI: ${PUBLIC_ORIGIN:-http://localhost:8080}/mcp
       OAUTH_JWKS_URL: http://app:3000/.well-known/jwks.json   # internal JWKS fetch (split-horizon)
       LIZ_SOCKET_URL: ws://app:3000             # internal collab socket
       COLLAB_TOKEN_URL: http://app:3000/api/collab-token       # internal collab-token mint
-      COLLAB_RESOURCE_URI: http://localhost:8080
+      COLLAB_RESOURCE_URI: ${PUBLIC_ORIGIN:-http://localhost:8080}
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
     volumes:
       - appdata:/data
