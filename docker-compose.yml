@@ -20,6 +20,9 @@ services:
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
       OAUTH_SIGNING_KEY_FILE: /run/oauth-private.pem
       OAUTH_SIGNING_KEY_KID: ${OAUTH_SIGNING_KEY_KID:-as-key}
+      # Token TTLs (seconds). Defaults: access=3600 (1 hr), refresh=604800 (7 days).
+      OAUTH_ACCESS_TOKEN_TTL: ${OAUTH_ACCESS_TOKEN_TTL:-3600}
+      OAUTH_REFRESH_TOKEN_TTL: ${OAUTH_REFRESH_TOKEN_TTL:-604800}
     volumes:
       - appdata:/app/data
       - ./deploy/oauth-private.pem:/run/oauth-private.pem:ro

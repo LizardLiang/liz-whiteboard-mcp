@@ -21,5 +21,9 @@ if ! grep -q '^MCP_CLIENT_SECRET=' .env 2>/dev/null; then
   echo "[run] wrote MCP_CLIENT_SECRET + OAUTH_SIGNING_KEY_KID to .env"
 fi
 
+# Optional TTL overrides (set in .env to override the defaults):
+#   OAUTH_ACCESS_TOKEN_TTL=3600      # access token TTL in seconds (default 3600 = 1 hr)
+#   OAUTH_REFRESH_TOKEN_TTL=604800   # refresh token TTL in seconds (default 604800 = 7 days)
+
 echo "[run] stack → http://localhost:8080   (app at /, MCP at /mcp)"
 exec docker compose up --build "$@"

@@ -14,5 +14,10 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     include: ['src/mcp/__tests__/**/*.test.ts'],
+    // The MCP server uses Prisma with SQLite. Inject a safe in-memory DATABASE_URL
+    // so tests that check env wiring get a valid value without needing .env.local.
+    env: {
+      DATABASE_URL: 'file::memory:',
+    },
   },
 })

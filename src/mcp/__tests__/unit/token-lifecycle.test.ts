@@ -137,7 +137,9 @@ describe('TC-UNIT-ENV-01 — DATABASE_URL environment variable wiring', () => {
 
   it('DATABASE_URL follows a recognised Prisma connection string format', () => {
     const dbUrl = process.env.DATABASE_URL ?? ''
-    // Prisma supports raw postgres(ql):// and Prisma Accelerate prisma+postgres://
-    expect(dbUrl).toMatch(/^(prisma\+)?postgres(ql)?:\/\//)
+    // Project migrated from Postgres/Accelerate to SQLite (commit e26c35e).
+    // Prisma SQLite URLs use `file:` prefix (e.g. file:/data/app.db or file::memory:).
+    // Postgres/Accelerate URLs (prisma+postgres://, postgres://, postgresql://) are no longer used.
+    expect(dbUrl).toMatch(/^(file:|:memory:)/)
   })
 })
