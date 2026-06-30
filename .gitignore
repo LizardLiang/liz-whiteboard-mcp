@@ -15,3 +15,6 @@ deploy/oauth-private.pem
 *.db
 *.db-wal
 *.db-shm
+
+# Local agent workspace (Kratos/Claude state)
+.claude/
