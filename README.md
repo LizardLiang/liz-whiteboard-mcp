@@ -18,6 +18,7 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 - [What it does](#what-it-does)
 - [The 19 MCP tools](#the-19-mcp-tools)
 - [How it works](#how-it-works)
+- [How to install & run](#how-to-install--run)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
 - [Deploy with Docker (single domain)](#deploy-with-docker-single-domain)
 - [Connect an MCP client (OAuth)](#connect-an-mcp-client-oauth)
@@ -69,6 +70,55 @@ liz-whiteboard-mcp  ── OAuth 2.0 Resource Server (RFC 9728 + RFC 8707) ─�
 - **Transport:** MCP Streamable HTTP (`POST /mcp`).
 - **AuthN/Z:** OAuth 2.1 Resource Server. Serves Protected Resource Metadata at `/.well-known/oauth-protected-resource`, returns `401` + `WWW-Authenticate` for unauthenticated requests, and validates audience-bound RS256 tokens issued by the liz-whiteboard Authorization Server.
 - **No token passthrough:** writes use a distinct collaboration token (avoids the OAuth "confused deputy" problem).
+
+## How to install & run
+
+Pick one of three ways to get the binary, then point an MCP client at it.
+
+### 1. Install the binary
+
+**Option A — `go install`** (needs Go `1.25+`; produces a binary named `mcp`):
+
+```bash
+go install github.com/LizardLiang/liz-whiteboard-mcp/cmd/mcp@latest
+# → $(go env GOPATH)/bin/mcp   (add that dir to your PATH)
+```
+
+**Option B — build from source:**
+
+```bash
+git clone https://github.com/LizardLiang/liz-whiteboard-mcp
+cd liz-whiteboard-mcp
+make build        # → ./liz-whiteboard-mcp
+```
+
+**Option C — Docker** (runs the whole stack; skip to [Deploy with Docker](#deploy-with-docker-single-domain)).
+
+### 2. Run it
+
+Set the environment (see [Configuration](#configuration)) and start the server. It listens on `127.0.0.1:3011` by default and serves the MCP endpoint at `/mcp`:
+
+```bash
+DATABASE_URL="file:/absolute/path/to/liz-whiteboard/data/app.db" \
+OAUTH_ISSUER="https://your-domain" \
+MCP_RESOURCE_URI="https://your-domain/mcp" \
+LIZ_SOCKET_URL="ws://localhost:3010" \
+MCP_CLIENT_SECRET="<shared-with-the-app>" \
+COLLAB_TOKEN_URL="https://your-domain/api/collab-token" \
+./liz-whiteboard-mcp
+```
+
+> For local testing without a full OAuth setup, use the dev-token path in [Quick start](#quick-start-local-dev-token) instead.
+
+### 3. Connect your AI client
+
+Register the running server with any MCP client. For Claude Code:
+
+```bash
+claude mcp add --transport http liz-whiteboard https://your-domain/mcp
+```
+
+On first use the client runs the browser OAuth flow automatically (see [Connect an MCP client](#connect-an-mcp-client-oauth)) — no API keys to copy. For Claude Desktop / Cursor / VS Code, add the same URL in the client's MCP server settings.
 
 ## Quick start (local, dev token)
 
@@ -125,7 +175,7 @@ No API keys or copied cookies required.
 | `MCP_RESOURCE_URI` | Canonical public URI of this server (e.g. `https://your-domain/mcp`); the expected token `aud`. |
 | `OAUTH_JWKS_URL` | Optional — fetch JWKS from an internal address while `OAUTH_ISSUER` stays public (reverse-proxy / split-horizon). Defaults to `{issuer}/.well-known/jwks.json`. |
 | `LIZ_SOCKET_URL` | Collaboration Socket.IO server URL (write path), e.g. `ws://localhost:3010`. |
-| `MCP_CLIENT_SECRET` | Confidential-client secret used to mint collaboration tokens from the AS. |
+| `MCP_CLIENT_ID` / `MCP_CLIENT_SECRET` | Confidential-client credentials used to mint collaboration tokens from the AS (`MCP_CLIENT_ID` defaults to `mcp-server`). |
 | `COLLAB_TOKEN_URL` / `COLLAB_RESOURCE_URI` | AS collab-token endpoint and the collaboration token audience. |
 | `MCP_DEV_AUTH`, `MCP_DEV_STUB_TOKEN`, `MCP_DEV_USER_ID` | **Dev only** — enable the stub verifier. Never set in production. |
 

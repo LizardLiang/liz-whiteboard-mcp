@@ -9,6 +9,7 @@ coverage/
 
 # Go build output
 /liz-whiteboard-mcp
+/mcp
 deploy/oauth-private.pem
 
 # Migrated/local SQLite data — never commit DB contents
