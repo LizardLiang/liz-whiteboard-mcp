@@ -1,4 +1,4 @@
-// Package tools registers the 17 MCP tools and their handlers. Each handler
+// Package tools registers the 19 MCP tools and their handlers. Each handler
 // performs project-access scoping and the Socket.IO write path.
 // Per-request identity comes from auth.UserID(ctx) (the bearer token validated
 // by the middleware), replacing the former process-global LIZ_SESSION_TOKEN model.

@@ -16,7 +16,7 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 ## Table of contents
 
 - [What it does](#what-it-does)
-- [The 17 MCP tools](#the-17-mcp-tools)
+- [The 19 MCP tools](#the-19-mcp-tools)
 - [How it works](#how-it-works)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
 - [Deploy with Docker (single domain)](#deploy-with-docker-single-domain)
@@ -38,16 +38,17 @@ Exposes the liz-whiteboard ER diagram as **MCP tools** so an LLM agent can:
 
 Reads go straight to the app's SQLite database; writes are sent to the live collaboration server over Socket.IO and broadcast to every connected user in real time. Every request is scoped to the authenticated user (project-membership checks).
 
-## The 17 MCP tools
+## The 19 MCP tools
 
 | Group | Tools |
 |---|---|
 | Discovery | `list_projects`, `list_whiteboards` |
-| Read | `get_board`, `get_schema_summary` |
+| Read | `get_board`, `get_schema_summary`, `get_table_ddl` |
 | Tables | `create_table`, `update_table`, `delete_table` |
 | Columns | `create_column`, `update_column`, `delete_column`, `reorder_columns` |
 | Relationships | `create_relationship`, `update_relationship`, `delete_relationship` |
 | Positions | `bulk_update_positions` |
+| Batch | `batch_schema_update` |
 | Static | `list_data_types` (25), `list_cardinalities` (17) |
 
 ## How it works
@@ -136,7 +137,7 @@ internal/auth          # OAuth Resource Server: JWKS verifier, per-request ident
 internal/db            # SQLite connection (database/sql + modernc.org/sqlite, no cgo)
 internal/data          # raw-SQL read layer
 internal/socket        # Socket.IO write path + collab-token client
-internal/tools         # the 17 MCP tool handlers
+internal/tools         # the 19 MCP tool handlers
 internal/errors        # error taxonomy + token redaction
 internal/{positioning,schema,summary}  # helpers
 ```

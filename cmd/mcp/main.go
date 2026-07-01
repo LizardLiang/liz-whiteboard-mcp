@@ -153,7 +153,7 @@ func main() {
 		Version: "1.0.0",
 	}, nil)
 
-	// Register all 17 tools.
+	// Register all 19 tools.
 	tools.RegisterDiscoveryTools(server)    // list_projects, list_whiteboards
 	tools.RegisterReadTools(server)         // get_board, get_schema_summary
 	tools.RegisterTableTools(server)        // create_table, update_table, delete_table
@@ -161,6 +161,8 @@ func main() {
 	tools.RegisterRelationshipTools(server) // create_relationship, update_relationship, delete_relationship
 	tools.RegisterPositionsTools(server)    // bulk_update_positions
 	tools.RegisterStaticTools(server)       // list_data_types, list_cardinalities
+	tools.RegisterBatchTools(server)        // batch_schema_update
+	tools.RegisterDDLTools(server)          // get_table_ddl
 
 	// Build the Streamable HTTP handler, then wrap with bearer middleware.
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
