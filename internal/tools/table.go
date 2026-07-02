@@ -85,7 +85,7 @@ func registerCreateTable(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Whiteboard %s not found.", in.WhiteboardID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 
@@ -173,7 +173,7 @@ func registerUpdateTable(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Table %s not found.", in.TableID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 
@@ -279,7 +279,7 @@ func registerDeleteTable(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Table %s not found.", in.TableID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 

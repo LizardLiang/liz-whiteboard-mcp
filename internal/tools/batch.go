@@ -624,7 +624,7 @@ func RegisterBatchTools(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Whiteboard %s not found.", in.WhiteboardID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 

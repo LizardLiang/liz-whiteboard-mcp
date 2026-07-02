@@ -64,3 +64,10 @@ func ListAccessibleProjects(ctx context.Context, userID string) ([]data.Project,
 func AssertProjectAccess(ctx context.Context, userID, projectID string) error {
 	return assertProjectAccessWithFn(ctx, checkProjectAccessDB, userID, projectID)
 }
+
+// AssertSchemaEditAccess asserts that a user has EDITOR or higher role on a project.
+// Used by all schema-mutating tools (create/update/delete table, column, relationship,
+// batch_schema_update). Returns FORBIDDEN for VIEWER-role members.
+func AssertSchemaEditAccess(ctx context.Context, userID, projectID string) error {
+	return assertSchemaEditAccessWithFn(ctx, checkSchemaEditAccessDB, userID, projectID)
+}

@@ -97,7 +97,7 @@ func registerCreateColumn(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Table %s not found.", in.TableID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 
@@ -170,7 +170,7 @@ func registerUpdateColumn(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Column %s not found.", in.ColumnID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 
@@ -236,7 +236,7 @@ func registerDeleteColumn(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Column %s not found.", in.ColumnID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 
@@ -294,7 +294,7 @@ func registerReorderColumns(s *mcp.Server) {
 		if projectID == "" {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Table %s not found.", in.TableID))
 		}
-		if err := auth.AssertProjectAccess(ctx, userID, projectID); err != nil {
+		if err := auth.AssertSchemaEditAccess(ctx, userID, projectID); err != nil {
 			return fail(err)
 		}
 
