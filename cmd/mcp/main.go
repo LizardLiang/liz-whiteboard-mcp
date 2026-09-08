@@ -9,30 +9,34 @@
 //     LIZ_SESSION_TOKEN is no longer required or consulted.
 //
 // Required env (non-stub mode):
-//   DATABASE_URL                SQLite path (e.g. file:/path/to/db.sqlite)
-//   OAUTH_ISSUER                AS issuer URL (e.g. http://localhost:3000)
-//                               MUST match the iss claim in every access token
-//                               and the OAUTH_ISSUER env var on the AS side.
-//   MCP_RESOURCE_URI            Canonical MCP resource URI (e.g. http://localhost:3011/mcp)
-//                               MUST match the aud claim in every access token
-//                               and the MCP_RESOURCE_URI env var on the AS side.
+//
+//	DATABASE_URL                SQLite path (e.g. file:/path/to/db.sqlite)
+//	OAUTH_ISSUER                AS issuer URL (e.g. http://localhost:3000)
+//	                            MUST match the iss claim in every access token
+//	                            and the OAUTH_ISSUER env var on the AS side.
+//	MCP_RESOURCE_URI            Canonical MCP resource URI (e.g. http://localhost:3011/mcp)
+//	                            MUST match the aud claim in every access token
+//	                            and the MCP_RESOURCE_URI env var on the AS side.
 //
 // Optional env:
-//   LIZ_SOCKET_URL              WebSocket URL for the collaboration server.
-//   MCP_LISTEN_ADDR             Listen address (default 127.0.0.1:3011).
+//
+//	LIZ_SOCKET_URL              WebSocket URL for the collaboration server.
+//	MCP_LISTEN_ADDR             Listen address (default 127.0.0.1:3011).
 //
 // Dev-only env (never set in production):
-//   MCP_DEV_AUTH=stub           Activates the stub verifier (skips JWKS).
-//   MCP_DEV_STUB_TOKEN          The one token the stub will accept.
-//   MCP_DEV_USER_ID             User ID the stub injects (default "dev-user").
+//
+//	MCP_DEV_AUTH=stub           Activates the stub verifier (skips JWKS).
+//	MCP_DEV_STUB_TOKEN          The one token the stub will accept.
+//	MCP_DEV_USER_ID             User ID the stub injects (default "dev-user").
 //
 // ENV ALIGNMENT (important — mismatched values cause 401 on every request):
-//   The AS and RS MUST share identical values for:
-//     OAUTH_ISSUER      → AS: issuer of tokens  / RS: expected iss claim
-//     MCP_RESOURCE_URI  → AS: aud in minted tokens / RS: expected aud claim
-//   Local dev defaults: OAUTH_ISSUER=http://localhost:3000, MCP_RESOURCE_URI=http://localhost:3011/mcp
-//   The AS's default MCP_RESOURCE_URI is http://localhost:8080/mcp — set it to
-//   http://localhost:3011/mcp to match the RS default (or override both consistently).
+//
+//	The AS and RS MUST share identical values for:
+//	  OAUTH_ISSUER      → AS: issuer of tokens  / RS: expected iss claim
+//	  MCP_RESOURCE_URI  → AS: aud in minted tokens / RS: expected aud claim
+//	Local dev defaults: OAUTH_ISSUER=http://localhost:3000, MCP_RESOURCE_URI=http://localhost:3011/mcp
+//	The AS's default MCP_RESOURCE_URI is http://localhost:8080/mcp — set it to
+//	http://localhost:3011/mcp to match the RS default (or override both consistently).
 //
 // Go rewrite of src/mcp/index.ts. Produces a single compiled binary with no
 // Bun or Node dependency.
@@ -121,11 +125,11 @@ func main() {
 
 	// Protected Resource Metadata (RFC 9728).
 	prm := &oauthex.ProtectedResourceMetadata{
-		Resource:                resourceURI,
-		AuthorizationServers:    []string{oauthIssuer},
-		ScopesSupported:         []string{"whiteboard"},
-		ResourceName:            "liz-whiteboard MCP",
-		BearerMethodsSupported:  []string{"header"},
+		Resource:               resourceURI,
+		AuthorizationServers:   []string{oauthIssuer},
+		ScopesSupported:        []string{"whiteboard"},
+		ResourceName:           "liz-whiteboard MCP",
+		BearerMethodsSupported: []string{"header"},
 	}
 
 	// Select verifier: stub (dev only) or JWKS (production default).
@@ -153,19 +157,20 @@ func main() {
 		Version: "1.0.0",
 	}, nil)
 
-	// Register all 29 tools.
-	tools.RegisterDiscoveryTools(server)    // list_projects, list_whiteboards
-	tools.RegisterReadTools(server)         // get_board, get_schema_summary
-	tools.RegisterTableTools(server)        // create_table, update_table, delete_table
-	tools.RegisterColumnTools(server)       // create_column, update_column, delete_column, reorder_columns
-	tools.RegisterRelationshipTools(server) // create_relationship, update_relationship, delete_relationship
-	tools.RegisterPositionsTools(server)    // bulk_update_positions
-	tools.RegisterStaticTools(server)       // list_data_types, list_cardinalities
-	tools.RegisterBatchTools(server)        // batch_schema_update
-	tools.RegisterDDLTools(server)          // get_table_ddl
-	tools.RegisterAreaTools(server)         // create_area, add_table_to_area, remove_table_from_area, move_area
-	tools.RegisterCanvasReadTools(server)   // list_canvas_boards, get_canvas_board, get_canvas_summary
-	tools.RegisterCanvasWriteTools(server)  // create_canvas_element, update_canvas_element, delete_canvas_element
+	// Register all 31 tools.
+	tools.RegisterDiscoveryTools(server)       // list_projects, list_whiteboards
+	tools.RegisterReadTools(server)            // get_board, get_schema_summary
+	tools.RegisterTableTools(server)           // create_table, update_table, delete_table
+	tools.RegisterColumnTools(server)          // create_column, update_column, delete_column, reorder_columns
+	tools.RegisterRelationshipTools(server)    // create_relationship, update_relationship, delete_relationship
+	tools.RegisterPositionsTools(server)       // bulk_update_positions
+	tools.RegisterStaticTools(server)          // list_data_types, list_cardinalities
+	tools.RegisterBatchTools(server)           // batch_schema_update
+	tools.RegisterDDLTools(server)             // get_table_ddl
+	tools.RegisterAreaTools(server)            // create_area, add_table_to_area, remove_table_from_area, move_area
+	tools.RegisterCanvasReadTools(server)      // list_canvas_boards, get_canvas_board, get_canvas_summary
+	tools.RegisterCanvasWriteTools(server)     // create_canvas_element, update_canvas_element, delete_canvas_element
+	tools.RegisterCanvasConnectorTools(server) // create_canvas_connector, update_canvas_connector
 
 	// Build the Streamable HTTP handler, then wrap with bearer middleware.
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {

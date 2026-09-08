@@ -426,6 +426,18 @@ func emitCanvasElementEvent(
 	if err != nil {
 		return fail(err)
 	}
+	return emitCanvasElementEventAs(ctx, userID, canvasBoardID, event, payload, fallbackMessage)
+}
+
+// emitCanvasElementEventAs emits one element event for an ALREADY authorized
+// user. The connector tools need this split: they run the gate first, then read
+// the elements their endpoints name, and only then know the payload.
+func emitCanvasElementEventAs(
+	ctx context.Context,
+	userID, canvasBoardID, event string,
+	payload map[string]any,
+	fallbackMessage string,
+) (*mcp.CallToolResult, any, error) {
 	ack, err := socket.SocketEmitWithAckNS(ctx, socket.NamespaceCanvas, canvasBoardID, userID, event, payload)
 	if err != nil {
 		return fail(err)

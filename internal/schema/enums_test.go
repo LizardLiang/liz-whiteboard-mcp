@@ -55,3 +55,18 @@ func TestIsValidCanvasElementKind(t *testing.T) {
 	assert.False(t, IsValidCanvasElementKind(""))
 	assert.False(t, IsValidCanvasElementKind("Rectangle")) // case-sensitive
 }
+
+// CanvasConnectorRoutings mirrors the app's canvasConnectorRoutingSchema
+// exactly — all three members, no narrowing, unlike CanvasElementKinds.
+func TestCanvasConnectorRoutings(t *testing.T) {
+	assert.Equal(t, []string{"straight", "elbow", "curved"}, CanvasConnectorRoutings)
+}
+
+func TestIsValidCanvasConnectorRouting(t *testing.T) {
+	for _, r := range CanvasConnectorRoutings {
+		assert.True(t, IsValidCanvasConnectorRouting(r), r+" is a supported routing")
+	}
+	assert.False(t, IsValidCanvasConnectorRouting(""))
+	assert.False(t, IsValidCanvasConnectorRouting("orthogonal"))
+	assert.False(t, IsValidCanvasConnectorRouting("Straight")) // case-sensitive
+}

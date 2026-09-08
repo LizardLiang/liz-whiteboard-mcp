@@ -72,6 +72,13 @@ var CanvasElementKinds = []string{
 	"rectangle", "ellipse", "diamond", "triangle", "text",
 }
 
+// CanvasConnectorRoutings mirrors the app's canvasConnectorRoutingSchema
+// (src/data/schema.ts) in full — all three members, no narrowing. Routing is a
+// pure geometry choice: none of the three stores a path, they differ only in how
+// connector-geometry.ts turns the two endpoints' live bounds into points, so
+// switching routing is a props write and nothing else.
+var CanvasConnectorRoutings = []string{"straight", "elbow", "curved"}
+
 var dataTypeSet = func() map[string]struct{} {
 	m := make(map[string]struct{}, len(DataTypes))
 	for _, dt := range DataTypes {
@@ -104,6 +111,14 @@ var canvasElementKindSet = func() map[string]struct{} {
 	return m
 }()
 
+var canvasConnectorRoutingSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(CanvasConnectorRoutings))
+	for _, r := range CanvasConnectorRoutings {
+		m[r] = struct{}{}
+	}
+	return m
+}()
+
 // IsValidDataType reports whether s is a recognized column data type.
 func IsValidDataType(s string) bool {
 	_, ok := dataTypeSet[s]
@@ -127,5 +142,12 @@ func IsValidAreaColor(s string) bool {
 // app but are refused here on purpose — see CanvasElementKinds.
 func IsValidCanvasElementKind(s string) bool {
 	_, ok := canvasElementKindSet[s]
+	return ok
+}
+
+// IsValidCanvasConnectorRouting reports whether s is a recognized connector
+// routing.
+func IsValidCanvasConnectorRouting(s string) bool {
+	_, ok := canvasConnectorRoutingSet[s]
 	return ok
 }

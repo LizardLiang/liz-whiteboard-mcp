@@ -300,3 +300,38 @@ func TestFindCanvasBoardByID_FoundAndMissing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, missing)
 }
+
+// ---------------------------------------------------------------------------
+// FindCanvasElementByID (Wave 3 — update_canvas_connector's read-and-merge)
+// ---------------------------------------------------------------------------
+
+// The connector update path must read the whole stored props blob before it
+// writes a replacement, so this query has to return every column, including the
+// board id the caller's ownership check compares against.
+func TestFindCanvasElementByID_ReturnsWholeRow(t *testing.T) {
+	ctx := newCanvasTestDB(t)
+	seedCanvas(t, ctx)
+
+	el, err := FindCanvasElementByID(ctx, "e0000000-0000-4000-8000-000000000002")
+	require.NoError(t, err)
+	require.NotNil(t, el)
+
+	assert.Equal(t, cvBoard1, el.BoardID, "the board id is what scopes an element to a board")
+	assert.Equal(t, "text", el.Kind)
+	require.NotNil(t, el.Text)
+	assert.Equal(t, "hello", *el.Text)
+	assert.JSONEq(t, `{"kind":"text"}`, string(el.Props))
+	assert.JSONEq(t, `{"fill":"#fff"}`, string(el.Style))
+	assert.Equal(t, 1, el.ZIndex)
+	assert.Equal(t, 3, el.Revision)
+	assert.Equal(t, time.UnixMilli(cvNow+200).UTC(), el.CreatedAt.Time)
+}
+
+func TestFindCanvasElementByID_UnknownIDReturnsNilNil(t *testing.T) {
+	ctx := newCanvasTestDB(t)
+	seedCanvas(t, ctx)
+
+	el, err := FindCanvasElementByID(ctx, cvUnknown)
+	require.NoError(t, err, "a missing element is not an error, matching FindCanvasBoardByID")
+	assert.Nil(t, el)
+}

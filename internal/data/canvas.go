@@ -153,6 +153,29 @@ func FindCanvasElementsByBoardID(ctx context.Context, boardID string) ([]CanvasE
 	return out, rows.Err()
 }
 
+// FindCanvasElementByID returns one canvas element by ID, or nil if it does not
+// exist. Deliberately NOT scoped to a board: the caller compares the returned
+// BoardID against the board it authorized, so an element id belonging to another
+// board reports the same NOT_FOUND as an id belonging to nothing — the identical
+// behaviour the collaboration server's own loadOwnedElement gives.
+//
+// Exists for update_canvas_connector, which must read the stored "props" blob
+// whole: the app's updateCanvasElementSchema takes props as a REPLACEMENT, not a
+// patch, so a write assembled without reading first would drop every optional
+// key it did not know about (sourceAttach, targetAttach, sourceAnchor,
+// targetAnchor, curvature) and silently un-anchor and un-bow the connector.
+func FindCanvasElementByID(ctx context.Context, id string) (*CanvasElement, error) {
+	e, err := scanCanvasElement(db.Pool().QueryRow(ctx,
+		`SELECT `+canvasElementSelectColumns+` FROM "CanvasElement" WHERE "id" = $1`, id))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return e, nil
+}
+
 // ListCanvasBoards returns the canvas boards in a project with an element count
 // for each. Uses a single grouped COUNT for the counts (avoids N+1), mirroring
 // ListWhiteboards.
