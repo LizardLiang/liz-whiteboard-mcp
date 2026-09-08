@@ -36,3 +36,22 @@ func TestIsValidAreaColor(t *testing.T) {
 	assert.False(t, IsValidAreaColor(""))
 	assert.False(t, IsValidAreaColor("Slate")) // case-sensitive
 }
+
+// CanvasElementKinds is the create_canvas_element surface, deliberately NARROWER
+// than the app's canvasElementKindSchema (7 members): connector gets its own tool
+// because its props arm is a filled union, and group is out of scope entirely.
+func TestCanvasElementKindCount(t *testing.T) {
+	assert.Len(t, CanvasElementKinds, 5,
+		"create_canvas_element accepts the 5 shape/text kinds, not connector or group")
+}
+
+func TestIsValidCanvasElementKind(t *testing.T) {
+	for _, kind := range []string{"rectangle", "ellipse", "diamond", "triangle", "text"} {
+		assert.True(t, IsValidCanvasElementKind(kind), kind+" is a supported kind")
+	}
+	// Both exist in the app's enum and both must still be refused here.
+	assert.False(t, IsValidCanvasElementKind("connector"), "connector has its own tool")
+	assert.False(t, IsValidCanvasElementKind("group"), "group is out of scope")
+	assert.False(t, IsValidCanvasElementKind(""))
+	assert.False(t, IsValidCanvasElementKind("Rectangle")) // case-sensitive
+}
