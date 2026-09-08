@@ -26,3 +26,16 @@ func FindColumnByID(ctx context.Context, id string) (*Column, error) {
 	}
 	return &c, nil
 }
+
+// CountColumnsByTableID returns the number of columns on a table. Used by the
+// MCP area-membership tools (add_table_to_area/remove_table_from_area) to
+// recompute area bounds without loading the whole board.
+func CountColumnsByTableID(ctx context.Context, tableID string) (int, error) {
+	var n int
+	err := db.Pool().QueryRow(ctx,
+		`SELECT count(*) FROM "Column" WHERE "tableId" = $1`, tableID).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}

@@ -148,6 +148,25 @@ type Relationship struct {
 	UpdatedAt      Timestamp `json:"updatedAt"`
 }
 
+// Area mirrors the app's Area model (subject areas / table grouping, GH #106).
+// memberTableIds is stored as JSON TEXT in SQLite; MemberTableIDs holds the
+// parsed []string (never nil — empty slice when the column is null/empty),
+// matching mapArea's `Array.isArray(members) ? members : []` fallback in
+// src/db.ts.
+type Area struct {
+	ID             string    `json:"id"`
+	WhiteboardID   string    `json:"whiteboardId"`
+	Name           string    `json:"name"`
+	Color          string    `json:"color"`
+	PositionX      float64   `json:"positionX"`
+	PositionY      float64   `json:"positionY"`
+	Width          float64   `json:"width"`
+	Height         float64   `json:"height"`
+	MemberTableIDs []string  `json:"memberTableIds"`
+	CreatedAt      Timestamp `json:"createdAt"`
+	UpdatedAt      Timestamp `json:"updatedAt"`
+}
+
 // TableWithRelations is a DiagramTable with its columns and relationships.
 // JSON keys match the Prisma include shape used by findWhiteboardByIdWithDiagram.
 type TableWithRelations struct {
@@ -161,6 +180,7 @@ type TableWithRelations struct {
 type WhiteboardWithDiagram struct {
 	Whiteboard
 	Tables []TableWithRelations `json:"tables"`
+	Areas  []Area               `json:"areas"`
 }
 
 // WhiteboardSummary is a list entry for list_whiteboards.

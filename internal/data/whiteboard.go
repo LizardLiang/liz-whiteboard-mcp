@@ -191,6 +191,15 @@ func FindWhiteboardByIDWithDiagram(ctx context.Context, id string) (*WhiteboardW
 	}
 
 	result := &WhiteboardWithDiagram{Whiteboard: wb, Tables: tables}
+
+	// Areas (subject areas / table grouping, GH #106). Loaded regardless of
+	// table count — an area may exist with zero (or not-yet-resolved) members.
+	areas, err := FindAreasByWhiteboardID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	result.Areas = areas
+
 	if len(tableIDs) == 0 {
 		return result, nil
 	}

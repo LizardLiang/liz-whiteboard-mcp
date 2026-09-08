@@ -47,6 +47,14 @@ var Cardinalities = []string{
 	"ZERO_OR_MANY_TO_ZERO_OR_MANY",
 }
 
+// AreaColors is the fixed curated palette of subject-area (GH #106) color ids.
+// Mirrors AREA_COLOR_IDS in src/lib/area-colors.ts exactly (ids and order;
+// the visual values — solid/fill/border — are resolved server-side and are
+// not needed here).
+var AreaColors = []string{
+	"slate", "red", "orange", "amber", "green", "teal", "blue", "violet",
+}
+
 var dataTypeSet = func() map[string]struct{} {
 	m := make(map[string]struct{}, len(DataTypes))
 	for _, dt := range DataTypes {
@@ -63,6 +71,14 @@ var cardinalitySet = func() map[string]struct{} {
 	return m
 }()
 
+var areaColorSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(AreaColors))
+	for _, c := range AreaColors {
+		m[c] = struct{}{}
+	}
+	return m
+}()
+
 // IsValidDataType reports whether s is a recognized column data type.
 func IsValidDataType(s string) bool {
 	_, ok := dataTypeSet[s]
@@ -72,5 +88,11 @@ func IsValidDataType(s string) bool {
 // IsValidCardinality reports whether s is a recognized relationship cardinality.
 func IsValidCardinality(s string) bool {
 	_, ok := cardinalitySet[s]
+	return ok
+}
+
+// IsValidAreaColor reports whether s is a recognized area palette color id.
+func IsValidAreaColor(s string) bool {
+	_, ok := areaColorSet[s]
 	return ok
 }
