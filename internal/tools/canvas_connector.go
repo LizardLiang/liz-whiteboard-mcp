@@ -248,6 +248,19 @@ func canvasConnectorPlaceholder(sourceEl *data.CanvasElement, sourcePoint *canva
 		return clampCanvasCoord(sourceEl.PositionX + sourceEl.Width/2),
 			clampCanvasCoord(sourceEl.PositionY + sourceEl.Height/2)
 	}
+	if sourcePoint == nil {
+		// Both ends nil is REACHABLE, and it is the ordinary path:
+		// createCanvasConnector validates the request BEFORE the authorization
+		// gate by calling buildCanvasConnectorCreatePayload(in, nil), because
+		// nothing is loaded yet. For an element-attached source that call
+		// arrives with no element AND no point. Its coordinates are discarded —
+		// only the error is read, and the payload is rebuilt with the resolved
+		// element afterwards — so the origin is a safe stand-in. Dereferencing
+		// sourcePoint here panicked and killed the whole server process on
+		// every create_canvas_connector call that attached its source to an
+		// element.
+		return 0, 0
+	}
 	return clampCanvasCoord(sourcePoint.X), clampCanvasCoord(sourcePoint.Y)
 }
 

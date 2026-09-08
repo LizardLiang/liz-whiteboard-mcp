@@ -516,3 +516,27 @@ func TestLoadCanvasConnectorForUpdate_AcceptsAConnector(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, cnConnectID, got.ID)
 }
+
+// REGRESSION (found by the canvas e2e gate, 2026-09-08): createCanvasConnector
+// calls buildCanvasConnectorCreatePayload(in, nil) BEFORE the authorization
+// gate, purely to validate the request without paying for a database round
+// trip. For an element-attached source that call arrives here with sourceEl nil
+// AND in.SourcePoint nil, and the old code dereferenced sourcePoint — a
+// SIGSEGV that killed the whole MCP server process on every ordinary
+// create_canvas_connector call. The earlier tests never hit it because each one
+// supplied either an element or a point.
+func TestCanvasConnectorPlaceholder_SurvivesPreGateValidationCall(t *testing.T) {
+	x, y := canvasConnectorPlaceholder(nil, nil)
+	assert.Equal(t, 0.0, x, "the pre-gate call discards these coordinates")
+	assert.Equal(t, 0.0, y)
+}
+
+func TestBuildCanvasConnectorCreatePayload_PreGateValidationWithoutSourceElement(t *testing.T) {
+	// Exactly the call createCanvasConnector makes at its validation step.
+	payload, e := buildCanvasConnectorCreatePayload(attachedCreateInput(), nil)
+	require.Nil(t, e)
+	assert.Equal(t, "connector", payload["kind"])
+	assert.Equal(t, 0.0, payload["positionX"],
+		"placeholder is provisional here; the real payload is rebuilt with the resolved element")
+	assert.Equal(t, 0.0, payload["positionY"])
+}

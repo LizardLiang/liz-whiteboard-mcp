@@ -19,3 +19,8 @@ deploy/oauth-private.pem
 
 # Local agent workspace (Kratos/Claude state)
 .claude/
+
+# Playwright e2e artifacts (see playwright.config.ts)
+test-results/
+playwright-report/
+e2e/.auth/
