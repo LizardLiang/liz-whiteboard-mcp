@@ -1,4 +1,4 @@
-// Package tools registers the 31 MCP tools and their handlers. Each handler
+// Package tools registers the MCP tools and their handlers. Each handler
 // performs project-access scoping and the Socket.IO write path.
 // Per-request identity comes from auth.UserID(ctx) (the bearer token validated
 // by the middleware), replacing the former process-global LIZ_SESSION_TOKEN model.
@@ -10,6 +10,16 @@ import (
 
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 )
+
+// ToolCount is the size of the MCP tool surface: the number of tools the
+// Register* functions in this package add to the server.
+//
+// This is the single source of truth for the count. It was hand-maintained in
+// three prose comments before, with nothing asserting it, and it went stale.
+// TestToolCountMatchesDocumentation asserts it against both the tools the
+// server actually advertises and the count README.md prints. Adding a tool
+// means bumping this constant and updating README.md; the test fails otherwise.
+const ToolCount = 31
 
 // emptyInput is the input type for tools that take no arguments.
 type emptyInput struct{}

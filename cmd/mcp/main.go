@@ -157,7 +157,8 @@ func main() {
 		Version: "1.0.0",
 	}, nil)
 
-	// Register all 31 tools.
+	// Register every tool. The count lives in tools.ToolCount, which
+	// TestToolCountMatchesDocumentation pins to this block and to README.md.
 	tools.RegisterDiscoveryTools(server)       // list_projects, list_whiteboards
 	tools.RegisterReadTools(server)            // get_board, get_schema_summary
 	tools.RegisterTableTools(server)           // create_table, update_table, delete_table
