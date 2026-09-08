@@ -31,6 +31,18 @@ func GetWhiteboardProjectID(ctx context.Context, whiteboardID string) (string, e
 		`SELECT "projectId" FROM "Whiteboard" WHERE id = $1`, whiteboardID)
 }
 
+// GetCanvasBoardProjectID resolves the projectId for a canvas board by ID.
+// Returns "" if the canvas board does not exist.
+//
+// A canvas board is a separate board kind from a whiteboard and lives in its own
+// table, so GetWhiteboardProjectID cannot resolve it: passing a canvas board id
+// there returns "", which every caller reads as NOT_FOUND. Canvas tools must
+// call this function.
+func GetCanvasBoardProjectID(ctx context.Context, canvasBoardID string) (string, error) {
+	return resolveProjectID(ctx,
+		`SELECT "projectId" FROM "CanvasBoard" WHERE id = $1`, canvasBoardID)
+}
+
 // GetTableProjectID resolves the projectId for a table by ID (via its whiteboard).
 // Returns "" if the table does not exist.
 func GetTableProjectID(ctx context.Context, tableID string) (string, error) {

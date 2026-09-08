@@ -1,6 +1,6 @@
-// Package socket implements a lazy per-(whiteboard,user) Socket.IO client
-// connection pool. It handles FR-021/FR-022: mid-session token expiry with one
-// reconnect attempt, and emit-with-ack with a 5-second timeout.
+// Package socket implements a lazy per-(namespace,resource,user) Socket.IO
+// client connection pool. It handles FR-021/FR-022: mid-session token expiry
+// with one reconnect attempt, and emit-with-ack with a 5-second timeout.
 //
 // Phase 4 change (Phase 4 confused-deputy fix):
 //   - Pool key changed from whiteboardID alone to (whiteboardID, userID) so each
@@ -12,6 +12,18 @@
 //   - SocketEmitWithAck now accepts a userID parameter which is threaded to
 //     GetConnection and used for JWT acquisition.
 //
+// Canvas change (canvas-whiteboard-mcp-support, Wave 0):
+//   - The collaboration server serves two namespaces: /whiteboard/:whiteboardId
+//     for the ER diagram and /canvas/:boardId for the canvas engine. The
+//     namespace is therefore an explicit parameter of every connection, not a
+//     hardcoded path segment.
+//   - Pool key extended to (namespace, resourceID, userID). Canvas board ids and
+//     whiteboard ids are both randomUUID() values drawn from one id space, so
+//     without the namespace component the two id spaces alias in one map.
+//   - The handshake is unchanged: the same collab-audience JWT authenticates
+//     both namespaces, and both signal readiness with the application-level
+//     "connected" event, so waitForConnect applies as-is.
+//
 // Ported from src/mcp/socket-manager.ts using
 // github.com/zishang520/socket.io-client-go.
 package socket
@@ -22,6 +34,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,12 +92,34 @@ func (a AckResult) Entity() any {
 	return a["entity"]
 }
 
-// socketKey is the pool key: (whiteboardID, userID).
-// Scoping by user ensures that users never share a socket connection, which
-// would confuse the collab server's per-socket identity model.
+// Socket.IO namespace families served by the collaboration server. The
+// namespace path is <baseURL>/<namespace>/<resourceID>.
+const (
+	// NamespaceWhiteboard carries the ER diagram events (table:*, column:*,
+	// relationship:*, area:*) for one Whiteboard id.
+	NamespaceWhiteboard = "whiteboard"
+	// NamespaceCanvas carries the canvas engine events (element:*) for one
+	// CanvasBoard id.
+	NamespaceCanvas = "canvas"
+)
+
+// socketKey is the pool key: (namespace, resourceID, userID).
+//   - namespace keeps whiteboard ids and canvas board ids apart. Both are
+//     randomUUID() values from one id space, so a key without the namespace
+//     would let a canvas board and a whiteboard share one pooled socket.
+//   - userID ensures that users never share a socket connection, which would
+//     confuse the collab server's per-socket identity model.
 type socketKey struct {
-	whiteboardID string
-	userID       string
+	namespace  string
+	resourceID string
+	userID     string
+}
+
+// dialKey is the singleflight key for this pool key. It must discriminate
+// exactly as much as the map key, or two dials on different namespaces would be
+// coalesced into one socket.
+func (k socketKey) dialKey() string {
+	return k.namespace + ":" + k.resourceID + ":" + k.userID
 }
 
 var (
@@ -97,14 +132,26 @@ func connectionError() error {
 	return mcperr.New(mcperr.ConnectionError, mcperr.MsgConnectionError)
 }
 
-// createSocket builds a fresh Socket.IO client for a whiteboard namespace,
-// authenticated as the given user via a collab-audience JWT.
-func createSocket(ctx context.Context, whiteboardID, userID string) (*sio.Socket, error) {
-	baseURL := os.Getenv("LIZ_SOCKET_URL")
-	if baseURL == "" {
-		baseURL = "ws://localhost:3010"
+// socketBaseURL returns the collaboration server origin, LIZ_SOCKET_URL or the
+// local development default.
+func socketBaseURL() string {
+	if v := os.Getenv("LIZ_SOCKET_URL"); v != "" {
+		return v
 	}
-	uri := fmt.Sprintf("%s/whiteboard/%s", baseURL, whiteboardID)
+	return "ws://localhost:3010"
+}
+
+// socketURI builds the namespace URI for one resource. A trailing slash on the
+// base URL is trimmed: "//canvas/<id>" would be a different namespace to the
+// server.
+func socketURI(baseURL, namespace, resourceID string) string {
+	return fmt.Sprintf("%s/%s/%s", strings.TrimSuffix(baseURL, "/"), namespace, resourceID)
+}
+
+// createSocket builds a fresh Socket.IO client for one namespace and resource,
+// authenticated as the given user via a collab-audience JWT.
+func createSocket(ctx context.Context, namespace, resourceID, userID string) (*sio.Socket, error) {
+	uri := socketURI(socketBaseURL(), namespace, resourceID)
 
 	// Obtain a collab-audience JWT for this user from the AS.
 	// The JWT has aud=COLLAB_RESOURCE_URI, sub=userID, exp=now+120s.
@@ -159,26 +206,33 @@ func waitForConnect(sock *sio.Socket, timeout time.Duration) error {
 	}
 }
 
-// removeConnection disconnects and removes a pooled socket.
-func removeConnection(whiteboardID, userID string) {
-	key := socketKey{whiteboardID: whiteboardID, userID: userID}
+// removeConnection disconnects and removes one pooled socket. It is scoped to a
+// single namespace: evicting a canvas socket must leave the whiteboard socket
+// for the same id and user pooled.
+func removeConnection(namespace, resourceID, userID string) {
+	key := socketKey{namespace: namespace, resourceID: resourceID, userID: userID}
 	mu.Lock()
 	defer mu.Unlock()
 	if sock, ok := connections[key]; ok {
-		sock.Disconnect()
+		if sock != nil {
+			sock.Disconnect()
+		}
 		delete(connections, key)
 	}
 }
 
 // GetConnection returns (or lazily creates) the Socket.IO connection for
-// (whiteboardID, userID). On a stale-but-cached socket it reconnects. On
-// connect failure it returns CONNECTION_ERROR.
+// (namespace, resourceID, userID). On a stale-but-cached socket it reconnects.
+// On connect failure it returns CONNECTION_ERROR.
 //
-// W2: concurrent callers for the same (whiteboard, user) are coalesced via
-// singleflight so that only one dial happens and no socket leaks.
-func GetConnection(ctx context.Context, whiteboardID, userID string) (*sio.Socket, error) {
-	key := socketKey{whiteboardID: whiteboardID, userID: userID}
-	sfKey := whiteboardID + ":" + userID
+// namespace must be NamespaceWhiteboard or NamespaceCanvas; resourceID is the
+// Whiteboard id or the CanvasBoard id respectively.
+//
+// W2: concurrent callers for the same (namespace, resource, user) are coalesced
+// via singleflight so that only one dial happens and no socket leaks.
+func GetConnection(ctx context.Context, namespace, resourceID, userID string) (*sio.Socket, error) {
+	key := socketKey{namespace: namespace, resourceID: resourceID, userID: userID}
+	sfKey := key.dialKey()
 
 	mu.Lock()
 	existing, ok := connections[key]
@@ -202,7 +256,7 @@ func GetConnection(ctx context.Context, whiteboardID, userID string) (*sio.Socke
 		}
 		mu.Unlock()
 
-		sock, err := createSocket(ctx, whiteboardID, userID)
+		sock, err := createSocket(ctx, namespace, resourceID, userID)
 		if err != nil {
 			return nil, connectionError()
 		}
@@ -214,11 +268,11 @@ func GetConnection(ctx context.Context, whiteboardID, userID string) (*sio.Socke
 		// FR-021: when the server signals session expiry, clean up for reconnect.
 		sock.On("session_expired", func(...any) {
 			fmt.Fprintf(os.Stderr,
-				"[liz-whiteboard MCP] Session expired on whiteboard %s (user %s). "+
-					"Will attempt one reconnect on next write.\n", whiteboardID, userID)
+				"[liz-whiteboard MCP] Session expired on %s %s (user %s). "+
+					"Will attempt one reconnect on next write.\n", namespace, resourceID, userID)
 			// Flush the cached collab JWT so the next reconnect fetches a fresh one.
 			flushCollabTokenCache(userID)
-			removeConnection(whiteboardID, userID)
+			removeConnection(namespace, resourceID, userID)
 		})
 
 		mu.Lock()
@@ -273,16 +327,25 @@ func ackErrorIsTimeout(_ error, connected bool) bool {
 	return connected
 }
 
-// SocketEmitWithAck emits a Socket.IO event and awaits an ack (FR-022). On
-// timeout it returns CONNECTION_ERROR. On disconnect (session_expired or network
-// drop) it attempts ONE reconnect and retries (FR-021); if the reconnect fails
-// it returns SESSION_EXPIRED.
+// SocketEmitWithAck emits an ER diagram event on /whiteboard/<whiteboardID>.
+// It is the whiteboard-namespace wrapper over SocketEmitWithAckNS and keeps the
+// signature every existing ER tool already calls.
+func SocketEmitWithAck(ctx context.Context, whiteboardID, userID, event string, payload any) (AckResult, error) {
+	return SocketEmitWithAckNS(ctx, NamespaceWhiteboard, whiteboardID, userID, event, payload)
+}
+
+// SocketEmitWithAckNS emits a Socket.IO event on <namespace>/<resourceID> and
+// awaits an ack (FR-022). On timeout it returns CONNECTION_ERROR. On disconnect
+// (session_expired or network drop) it attempts ONE reconnect and retries
+// (FR-021); if the reconnect fails it returns SESSION_EXPIRED.
+//
+// namespace must be NamespaceWhiteboard or NamespaceCanvas.
 //
 // userID must be the authenticated User.id from the request context (auth.UserID(ctx)).
 // It is used to: (a) scope the connection to this user, (b) obtain a per-user
 // collab-audience JWT from the AS.
-func SocketEmitWithAck(ctx context.Context, whiteboardID, userID, event string, payload any) (AckResult, error) {
-	sock, err := GetConnection(ctx, whiteboardID, userID)
+func SocketEmitWithAckNS(ctx context.Context, namespace, resourceID, userID, event string, payload any) (AckResult, error) {
+	sock, err := GetConnection(ctx, namespace, resourceID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -299,11 +362,11 @@ func SocketEmitWithAck(ctx context.Context, whiteboardID, userID, event string, 
 	}
 
 	// Socket disconnected → attempt ONE reconnect (FR-021).
-	removeConnection(whiteboardID, userID)
+	removeConnection(namespace, resourceID, userID)
 	fmt.Fprintf(os.Stderr,
 		"[liz-whiteboard MCP] Socket disconnected on %s emit (user %s). "+
 			"Attempting one reconnect (FR-021)...\n", event, userID)
-	sock, rerr := GetConnection(ctx, whiteboardID, userID)
+	sock, rerr := GetConnection(ctx, namespace, resourceID, userID)
 	if rerr != nil {
 		return nil, mcperr.New(mcperr.SessionExpired, mcperr.MsgSessionExpired)
 	}
@@ -319,7 +382,9 @@ func CloseAll() {
 	mu.Lock()
 	defer mu.Unlock()
 	for key, sock := range connections {
-		sock.Disconnect()
+		if sock != nil {
+			sock.Disconnect()
+		}
 		delete(connections, key)
 	}
 }
