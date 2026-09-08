@@ -43,6 +43,7 @@ import (
 	sio "github.com/zishang520/socket.io-client-go/socket"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/collabtoken"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 )
 
@@ -156,7 +157,7 @@ func createSocket(ctx context.Context, namespace, resourceID, userID string) (*s
 	// Obtain a collab-audience JWT for this user from the AS.
 	// The JWT has aud=COLLAB_RESOURCE_URI, sub=userID, exp=now+120s.
 	// The collab server validates it via the AS public key.
-	collabJWT, err := GetCollabToken(ctx, userID)
+	collabJWT, err := collabtoken.Get(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get collab token for user %s: %w", userID, err)
 	}
@@ -271,7 +272,7 @@ func GetConnection(ctx context.Context, namespace, resourceID, userID string) (*
 				"[liz-whiteboard MCP] Session expired on %s %s (user %s). "+
 					"Will attempt one reconnect on next write.\n", namespace, resourceID, userID)
 			// Flush the cached collab JWT so the next reconnect fetches a fresh one.
-			flushCollabTokenCache(userID)
+			collabtoken.Flush(userID)
 			removeConnection(namespace, resourceID, userID)
 		})
 

@@ -172,6 +172,7 @@ func main() {
 	tools.RegisterCanvasReadTools(server)      // list_canvas_boards, get_canvas_board, get_canvas_summary
 	tools.RegisterCanvasWriteTools(server)     // create_canvas_element, update_canvas_element, delete_canvas_element
 	tools.RegisterCanvasConnectorTools(server) // create_canvas_connector, update_canvas_connector
+	tools.RegisterCanvasBoardTools(server)     // create_canvas_board, update_canvas_board, delete_canvas_board
 
 	// Build the Streamable HTTP handler, then wrap with bearer middleware.
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {

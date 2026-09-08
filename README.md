@@ -16,7 +16,7 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 ## Table of contents
 
 - [What it does](#what-it-does)
-- [The 31 MCP tools](#the-31-mcp-tools)
+- [The 34 MCP tools](#the-34-mcp-tools)
 - [How it works](#how-it-works)
 - [How to install & run](#how-to-install--run)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
@@ -36,11 +36,11 @@ Exposes the liz-whiteboard ER diagram as **MCP tools** so an LLM agent can:
 - **Discover** — list the user's projects and whiteboards.
 - **Read** — load a whiteboard's full diagram (tables, columns, relationships, positions, subject areas) or a compact text schema summary.
 - **Write** — create / update / delete tables, columns, and relationships; reorder columns; bulk-move tables; create subject areas and manage their membership/position.
-- **Draw on canvas boards** — read, create, update, and delete shapes, text, and connectors on freeform FigJam-style canvas boards (see [Canvas boards vs ER whiteboards](#canvas-boards-vs-er-whiteboards)).
+- **Draw on canvas boards** — create canvas boards, and read, create, update, and delete the shapes, text, and connectors on them (see [Canvas boards vs ER whiteboards](#canvas-boards-vs-er-whiteboards)).
 
 Reads go straight to the app's SQLite database; writes are sent to the live collaboration server over Socket.IO and broadcast to every connected user in real time. Every request is scoped to the authenticated user (project-membership checks).
 
-## The 31 MCP tools
+## The 34 MCP tools
 
 | Group | Tools |
 |---|---|
@@ -56,6 +56,7 @@ Reads go straight to the app's SQLite database; writes are sent to the live coll
 | Canvas read | `list_canvas_boards`, `get_canvas_board`, `get_canvas_summary` |
 | Canvas elements | `create_canvas_element`, `update_canvas_element`, `delete_canvas_element` |
 | Canvas connectors | `create_canvas_connector`, `update_canvas_connector` |
+| Canvas boards | `create_canvas_board`, `update_canvas_board`, `delete_canvas_board` |
 
 ### Canvas boards vs ER whiteboards
 
@@ -63,15 +64,18 @@ A project holds two independent board types, and the tools do not cross between 
 
 Canvas writes take the same path as ER writes: the tool emits over Socket.IO to the collaboration server, so every open browser client re-renders without a reload. Reads come straight from SQLite.
 
-Five behaviours are non-obvious and an agent calling these tools must know them.
+Six behaviours are non-obvious and an agent calling these tools must know them.
 
 1. **`style` is written whole, not merged.** The app's style schema is a `z.strictObject` with a default for every key, so a `style` argument that names only `fill` resets `stroke`, `strokeWidth`, `fontSize`, `color`, `cornerRadius`, `textAlign`, and `verticalAlign` to the engine defaults. To change one key and keep the rest, read the element first with `get_canvas_board` and resend the full style.
 2. **`maxElements` is rejected above 500, never clamped.** `get_canvas_board` and `get_canvas_summary` default to 500 elements; a value below 1 or above 500 fails with a validation error naming `maxElements`. A truncated read reports `truncated: true` and `totalElements`, and returns the first `maxElements` in paint order (`zIndex` ascending, then `createdAt`).
 3. **`text` takes no null; an empty string clears the label.** Omit `text` to leave the current label untouched. Pass `""` to remove it. The maximum length is 10,000 characters.
 4. **`update_canvas_connector` preserves the endpoint keys it does not manage.** It reads the stored element, merges your fields into a full replacement `props` object, and carries `sourceAttach`, `targetAttach`, the legacy `sourceAnchor` / `targetAnchor`, and `curvature` across unchanged. A connector the user attached to a specific side in the UI keeps that attachment after an MCP re-route.
-5. **`connector` and `group` are not valid kinds for `create_canvas_element`.** It accepts `rectangle`, `ellipse`, `diamond`, `triangle`, and `text` only. Connectors have their own pair of tools, because their `props` carry cross-field invariants a single generic union would make unreliable to fill. Groups are unsupported by design: their cascade and cycle integrity is a scene-level invariant the browser client repairs on load, and this server has no scene to check against.
+5. **`delete_canvas_board` requires `confirmName`, and it must match exactly.** Pass the board's current name; read it first with `get_canvas_board`. A mismatch deletes nothing and returns a validation error naming `confirmName`, and the error does not disclose the stored name — the guard exists to catch a wrong `canvasBoardId`, so a blind retry must not be able to defeat it. The delete is permanent and cascades to every element and every share link on the board.
+6. **`connector` and `group` are not valid kinds for `create_canvas_element`.** It accepts `rectangle`, `ellipse`, `diamond`, `triangle`, and `text` only. Connectors have their own pair of tools, because their `props` carry cross-field invariants a single generic union would make unreliable to fill. Groups are unsupported by design: their cascade and cycle integrity is a scene-level invariant the browser client repairs on load, and this server has no scene to check against.
 
 Connectors carry two further rules, both checked before anything is written. Each end takes exactly one form: either an element id (`sourceElementId` / `targetElementId`) or a free point (`sourcePoint` / `targetPoint`). Giving both forms for one end, or neither, is a validation error. A connector also cannot join an element to itself, so `sourceElementId` and `targetElementId` must differ. `create_canvas_connector` takes no `style`; set a connector's colour or stroke afterwards with `update_canvas_element`.
+
+Board lifecycle takes a different transport from element writes. `create_canvas_board`, `update_canvas_board`, and `delete_canvas_board` call the app's `POST /api/canvas-boards` route over HTTP (set `LIZ_CANVAS_BOARD_API_URL`), authenticated with the same collaboration JWT the socket path uses. Element writes stay on Socket.IO because open clients must re-render live; board creation has no co-viewing client to broadcast to. One consequence: `update_canvas_board` can move a board into a folder but cannot move it back to the project root, because an omitted `folderId` means "leave it where it is".
 
 Server-owned fields are never accepted from a caller. The collaboration server assigns each element's `id`, computes `zIndex` as `MAX(zIndex) + 1` on create, and forces `rotation` to 0. Use `update_canvas_element`'s `zIndex` argument (range -1,000,000 to 1,000,000) to restack an element; there is no separate bring-to-front tool. Every canvas write requires the EDITOR role or higher, checked here and again by the collaboration server.
 
@@ -128,6 +132,7 @@ MCP_RESOURCE_URI="https://your-domain/mcp" \
 LIZ_SOCKET_URL="ws://localhost:3010" \
 MCP_CLIENT_SECRET="<shared-with-the-app>" \
 COLLAB_TOKEN_URL="https://your-domain/api/collab-token" \
+LIZ_CANVAS_BOARD_API_URL="https://your-domain/api/canvas-boards" \
 ./liz-whiteboard-mcp
 ```
 
@@ -200,6 +205,7 @@ No API keys or copied cookies required.
 | `LIZ_SOCKET_URL` | Collaboration Socket.IO server URL (write path), e.g. `ws://localhost:3010`. |
 | `MCP_CLIENT_ID` / `MCP_CLIENT_SECRET` | Confidential-client credentials used to mint collaboration tokens from the AS (`MCP_CLIENT_ID` defaults to `mcp-server`). |
 | `COLLAB_TOKEN_URL` / `COLLAB_RESOURCE_URI` | AS collab-token endpoint and the collaboration token audience. |
+| `LIZ_CANVAS_BOARD_API_URL` | App route for canvas board create / rename / delete (default `http://localhost:3000/api/canvas-boards`). Only the three `*_canvas_board` tools use it. |
 | `MCP_DEV_AUTH`, `MCP_DEV_STUB_TOKEN`, `MCP_DEV_USER_ID` | **Dev only** — enable the stub verifier. Never set in production. |
 
 ## Project layout
@@ -209,7 +215,9 @@ cmd/mcp/main.go        # entrypoint: HTTP transport, OAuth wiring, tool registra
 internal/auth          # OAuth Resource Server: JWKS verifier, per-request identity, project scoping
 internal/db            # SQLite connection (database/sql + modernc.org/sqlite, no cgo)
 internal/data          # raw-SQL read layer
-internal/socket        # Socket.IO write path + collab-token client
+internal/socket        # Socket.IO write path (canvas + ER element writes)
+internal/collabtoken   # collab-audience JWT client, shared by the socket and HTTP paths
+internal/appapi        # HTTP client for the app's canvas-board route (board lifecycle)
 internal/tools         # MCP tool handlers (ER + canvas); tools.ToolCount is the tool-surface size
 internal/errors        # error taxonomy + token redaction
 internal/{positioning,schema,summary}  # helpers

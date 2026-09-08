@@ -1,4 +1,4 @@
-package socket
+package collabtoken
 
 import (
 	"context"
@@ -21,9 +21,9 @@ func resetCollabCache() {
 	collabState.mu.Unlock()
 }
 
-// TestGetCollabToken_Fetches verifies that GetCollabToken calls the AS endpoint
+// TestGet_Fetches verifies that GetCollabToken calls the AS endpoint
 // and returns the token when the cache is empty.
-func TestGetCollabToken_Fetches(t *testing.T) {
+func TestGet_Fetches(t *testing.T) {
 	resetCollabCache()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,14 +48,14 @@ func TestGetCollabToken_Fetches(t *testing.T) {
 	// Point the package's HTTP client at our test server.
 	collabState.client = srv.Client()
 
-	token, err := GetCollabToken(context.Background(), "user-abc")
+	token, err := Get(context.Background(), "user-abc")
 	require.NoError(t, err)
 	assert.Equal(t, "test-jwt-token", token)
 }
 
-// TestGetCollabToken_CacheHit verifies that a second call for the same user
+// TestGet_CacheHit verifies that a second call for the same user
 // returns the cached token without a second HTTP request.
-func TestGetCollabToken_CacheHit(t *testing.T) {
+func TestGet_CacheHit(t *testing.T) {
 	resetCollabCache()
 
 	callCount := 0
@@ -71,18 +71,18 @@ func TestGetCollabToken_CacheHit(t *testing.T) {
 	t.Setenv("MCP_CLIENT_SECRET", "test-secret")
 	collabState.client = srv.Client()
 
-	_, err := GetCollabToken(context.Background(), "user-cached")
+	_, err := Get(context.Background(), "user-cached")
 	require.NoError(t, err)
-	_, err = GetCollabToken(context.Background(), "user-cached")
+	_, err = Get(context.Background(), "user-cached")
 	require.NoError(t, err)
 
 	// Only one HTTP call should have been made.
 	assert.Equal(t, 1, callCount, "expected cache hit on second call")
 }
 
-// TestGetCollabToken_CacheExpiry verifies that an expired cache entry triggers
+// TestGet_CacheExpiry verifies that an expired cache entry triggers
 // a fresh fetch.
-func TestGetCollabToken_CacheExpiry(t *testing.T) {
+func TestGet_CacheExpiry(t *testing.T) {
 	resetCollabCache()
 
 	// Pre-populate a cache entry that is already expired (expiresAt in the past).
@@ -106,15 +106,15 @@ func TestGetCollabToken_CacheExpiry(t *testing.T) {
 	t.Setenv("MCP_CLIENT_SECRET", "test-secret")
 	collabState.client = srv.Client()
 
-	token, err := GetCollabToken(context.Background(), "user-expired")
+	token, err := Get(context.Background(), "user-expired")
 	require.NoError(t, err)
 	assert.Equal(t, "fresh-jwt", token)
 	assert.Equal(t, 1, callCount)
 }
 
-// TestGetCollabToken_ServerError verifies that an HTTP error from the AS
+// TestGet_ServerError verifies that an HTTP error from the AS
 // propagates as a non-nil error (not a silent cache hit or empty token).
-func TestGetCollabToken_ServerError(t *testing.T) {
+func TestGet_ServerError(t *testing.T) {
 	resetCollabCache()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,14 +128,14 @@ func TestGetCollabToken_ServerError(t *testing.T) {
 	t.Setenv("MCP_CLIENT_SECRET", "wrong-secret")
 	collabState.client = srv.Client()
 
-	_, err := GetCollabToken(context.Background(), "user-err")
+	_, err := Get(context.Background(), "user-err")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "401")
 }
 
-// TestGetCollabToken_PerUserIsolation verifies that different users get
+// TestGet_PerUserIsolation verifies that different users get
 // independent cache entries (i.e., user A's token is not returned for user B).
-func TestGetCollabToken_PerUserIsolation(t *testing.T) {
+func TestGet_PerUserIsolation(t *testing.T) {
 	resetCollabCache()
 
 	// Pre-populate cache for user-a with a known token.
@@ -157,20 +157,20 @@ func TestGetCollabToken_PerUserIsolation(t *testing.T) {
 	t.Setenv("MCP_CLIENT_SECRET", "test-secret")
 	collabState.client = srv.Client()
 
-	tokenA, err := GetCollabToken(context.Background(), "user-a")
+	tokenA, err := Get(context.Background(), "user-a")
 	require.NoError(t, err)
 	assert.Equal(t, "token-for-user-a", tokenA)
 
-	tokenB, err := GetCollabToken(context.Background(), "user-b")
+	tokenB, err := Get(context.Background(), "user-b")
 	require.NoError(t, err)
 	assert.Equal(t, "token-for-user-b", tokenB)
 
 	assert.NotEqual(t, tokenA, tokenB, "user A and B must get different tokens")
 }
 
-// TestFlushCollabTokenCache verifies that flushing a user's entry causes a
+// TestFlush verifies that flushing a user's entry causes a
 // fresh fetch on the next call.
-func TestFlushCollabTokenCache(t *testing.T) {
+func TestFlush(t *testing.T) {
 	resetCollabCache()
 
 	// Pre-populate cache.
@@ -195,18 +195,18 @@ func TestFlushCollabTokenCache(t *testing.T) {
 	collabState.client = srv.Client()
 
 	// Flush forces a new fetch even though cache was populated.
-	flushCollabTokenCache("flush-user")
+	Flush("flush-user")
 
-	token, err := GetCollabToken(context.Background(), "flush-user")
+	token, err := Get(context.Background(), "flush-user")
 	require.NoError(t, err)
 	assert.Equal(t, "refreshed-token", token)
 	assert.Equal(t, 1, callCount)
 }
 
-// TestGetCollabToken_Singleflight verifies that concurrent callers for the same
+// TestGet_Singleflight verifies that concurrent callers for the same
 // userID are coalesced: only one HTTP request fires even when multiple goroutines
 // race past a cold cache simultaneously (WARNING-3 fix).
-func TestGetCollabToken_Singleflight(t *testing.T) {
+func TestGet_Singleflight(t *testing.T) {
 	resetCollabCache()
 
 	const concurrency = 20
@@ -237,7 +237,7 @@ func TestGetCollabToken_Singleflight(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			tokens[idx], errs[idx] = GetCollabToken(context.Background(), "sf-user")
+			tokens[idx], errs[idx] = Get(context.Background(), "sf-user")
 		}(i)
 	}
 	wg.Wait()

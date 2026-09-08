@@ -1,23 +1,31 @@
-package socket
-
-// collabToken.go — fetches and caches collab-audience JWTs from the AS.
+// Package collabtoken fetches and caches collab-audience JWTs from the
+// Authorization Server.
 //
 // The MCP server is a confidential client. Per request (per user), it calls
 // POST <COLLAB_TOKEN_URL> with its client_id + client_secret and the acting
 // userId, and receives a short-lived JWT (exp=120s) with:
-//   iss=AS issuer, aud=COLLAB_RESOURCE_URI, sub=userId
+//
+//	iss=AS issuer, aud=COLLAB_RESOURCE_URI, sub=userId
 //
 // The JWT is cached per userId for (exp - 30s) to avoid a round-trip on every
 // socket connection. The collab server validates this JWT via the AS public key.
 //
 // Env vars consumed (read at call time, not init):
-//   COLLAB_TOKEN_URL   URL of the AS collab-token endpoint
-//                      (default: http://localhost:3000/api/collab-token)
-//   MCP_CLIENT_ID      client_id for this MCP server (default: mcp-server)
-//   MCP_CLIENT_SECRET  client_secret for this MCP server (required in prod)
+//
+//	COLLAB_TOKEN_URL   URL of the AS collab-token endpoint
+//	                   (default: http://localhost:3000/api/collab-token)
+//	MCP_CLIENT_ID      client_id for this MCP server (default: mcp-server)
+//	MCP_CLIENT_SECRET  client_secret for this MCP server (required in prod)
 //
 // Security: the secret is sent only over the server-to-server channel to the
 // AS (localhost in practice). It is never forwarded to the collab server.
+//
+// This package is deliberately separate from internal/socket. Two callers need
+// the same credential for two different transports: the Socket.IO dial in
+// internal/socket and the HTTP call in internal/appapi. Leaving it in
+// internal/socket would force the HTTP client to import the Socket.IO package
+// for nothing but a token.
+package collabtoken
 
 import (
 	"bytes"
@@ -41,10 +49,10 @@ type collabCacheEntry struct {
 // collabTokenState holds the per-user JWT cache, the shared HTTP client, and a
 // singleflight group to deduplicate concurrent AS fetches for the same userID.
 type collabTokenState struct {
-	mu       sync.Mutex
-	tokens   map[string]collabCacheEntry
-	client   *http.Client
-	sfGroup  singleflight.Group
+	mu      sync.Mutex
+	tokens  map[string]collabCacheEntry
+	client  *http.Client
+	sfGroup singleflight.Group
 }
 
 var collabState = &collabTokenState{
@@ -64,11 +72,11 @@ type collabFetchResult struct {
 	expiresIn int
 }
 
-// GetCollabToken returns a valid collab-audience JWT for the given userId.
+// Get returns a valid collab-audience JWT for the given userId.
 // On cache hit (≥30s remaining), returns the cached token.
 // On miss, fetches from the AS and caches the result. Concurrent callers for
 // the same userID are coalesced via singleflight so only one AS request fires.
-func GetCollabToken(ctx context.Context, userID string) (string, error) {
+func Get(ctx context.Context, userID string) (string, error) {
 	collabState.mu.Lock()
 	cached, ok := collabState.tokens[userID]
 	collabState.mu.Unlock()
@@ -167,9 +175,9 @@ func fetchCollabToken(ctx context.Context, userID string) (string, int, error) {
 	return result.Token, result.ExpiresIn, nil
 }
 
-// flushCollabTokenCache removes the cached token for a user (used in tests and
-// on session_expired events where the token may have been invalidated).
-func flushCollabTokenCache(userID string) {
+// Flush removes the cached token for a user (used in tests and on
+// session_expired events where the token may have been invalidated).
+func Flush(userID string) {
 	collabState.mu.Lock()
 	delete(collabState.tokens, userID)
 	collabState.mu.Unlock()
