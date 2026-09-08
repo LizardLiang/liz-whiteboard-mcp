@@ -1,0 +1,52 @@
+# E2E verification override for the canvas MCP suite (e2e/canvas-mcp.spec.ts).
+#
+# Two deviations from docker-compose.yml, both required, both explained:
+#
+# 1. PROXY PORT. Host port 8080 is unbindable in this WSL2 environment (Docker
+#    Desktop answers "/forwards/expose returned 500"), so the published port
+#    moves to 18080. Bring the stack up with PUBLIC_ORIGIN=http://localhost:18080
+#    to match: OAuth audience validation compares the `resource` request
+#    parameter against MCP_RESOURCE_URI, and any mismatch 401s every MCP call.
+#
+# 2. APP BUILD WITH VITE_E2E_HOOKS=1. Canvas content paints to a single <canvas>
+#    element — there are no DOM nodes, no data-testid attributes, nothing
+#    Playwright can query. The app publishes its live scene at
+#    `window.__canvasEngine` for exactly this reason, but gates the publish on
+#    `import.meta.env.DEV || VITE_E2E_HOOKS === '1'` so users never receive it
+#    (src/components/canvas/canvas-test-hook.ts:209). Vite reads VITE_* at BUILD
+#    time, and compose `environment:` only sets RUNTIME variables, so the
+#    variable has to reach `bun run build` inside the image build. The app
+#    Dockerfile declares no ARG for it, so this override restates the build with
+#    the variable set rather than editing the other repo.
+#
+#    DRIFT WARNING: the steps below mirror ../liz-whiteboard/Dockerfile. If that
+#    file changes, update this block. The e2e suite fails loudly if the hook is
+#    missing, which is the tripwire.
+#
+# Bring the e2e stack up (from this directory):
+#   PUBLIC_ORIGIN=http://localhost:18080 \
+#     docker compose -p lizverify -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+# Tear it down:
+#   docker compose -p lizverify -f docker-compose.yml -f docker-compose.e2e.yml down -v
+services:
+  app:
+    build:
+      context: ../liz-whiteboard
+      dockerfile_inline: |
+        FROM oven/bun:1
+        WORKDIR /app
+        COPY package.json bun.lock ./
+        RUN bun install
+        COPY . .
+        ENV VITE_E2E_HOOKS=1
+        RUN bun run build
+        ENV DATABASE_URL=file:/app/data/app.db
+        ENV NODE_ENV=production
+        ENV PORT=3000
+        EXPOSE 3000
+        RUN chmod +x /app/entrypoint.sh
+        CMD ["/app/entrypoint.sh"]
+
+  proxy:
+    ports: !override
+      - "127.0.0.1:18080:8080"

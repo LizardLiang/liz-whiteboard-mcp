@@ -55,6 +55,30 @@ var AreaColors = []string{
 	"slate", "red", "orange", "amber", "green", "teal", "blue", "violet",
 }
 
+// CanvasElementKinds is the ordered list of canvas element kinds that
+// create_canvas_element accepts.
+//
+// This list is DELIBERATELY narrower than the app's canvasElementKindSchema
+// (src/data/schema.ts), which also carries "connector" and "group":
+//   - connector has its own MCP tool, because it is the only props arm with real
+//     content and three cross-field invariants; folding it into the generic
+//     create would produce a union an LLM cannot fill reliably.
+//   - group is out of scope: its cascade and cycle integrity is a scene-level
+//     invariant the client repairs on load, and the MCP has no scene to check
+//     against.
+//
+// Every kind here has an empty props arm, so props is exactly {"kind": <kind>}.
+var CanvasElementKinds = []string{
+	"rectangle", "ellipse", "diamond", "triangle", "text",
+}
+
+// CanvasConnectorRoutings mirrors the app's canvasConnectorRoutingSchema
+// (src/data/schema.ts) in full — all three members, no narrowing. Routing is a
+// pure geometry choice: none of the three stores a path, they differ only in how
+// connector-geometry.ts turns the two endpoints' live bounds into points, so
+// switching routing is a props write and nothing else.
+var CanvasConnectorRoutings = []string{"straight", "elbow", "curved"}
+
 var dataTypeSet = func() map[string]struct{} {
 	m := make(map[string]struct{}, len(DataTypes))
 	for _, dt := range DataTypes {
@@ -79,6 +103,22 @@ var areaColorSet = func() map[string]struct{} {
 	return m
 }()
 
+var canvasElementKindSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(CanvasElementKinds))
+	for _, k := range CanvasElementKinds {
+		m[k] = struct{}{}
+	}
+	return m
+}()
+
+var canvasConnectorRoutingSet = func() map[string]struct{} {
+	m := make(map[string]struct{}, len(CanvasConnectorRoutings))
+	for _, r := range CanvasConnectorRoutings {
+		m[r] = struct{}{}
+	}
+	return m
+}()
+
 // IsValidDataType reports whether s is a recognized column data type.
 func IsValidDataType(s string) bool {
 	_, ok := dataTypeSet[s]
@@ -94,5 +134,20 @@ func IsValidCardinality(s string) bool {
 // IsValidAreaColor reports whether s is a recognized area palette color id.
 func IsValidAreaColor(s string) bool {
 	_, ok := areaColorSet[s]
+	return ok
+}
+
+// IsValidCanvasElementKind reports whether s is a canvas element kind that
+// create_canvas_element accepts. "connector" and "group" are valid kinds in the
+// app but are refused here on purpose — see CanvasElementKinds.
+func IsValidCanvasElementKind(s string) bool {
+	_, ok := canvasElementKindSet[s]
+	return ok
+}
+
+// IsValidCanvasConnectorRouting reports whether s is a recognized connector
+// routing.
+func IsValidCanvasConnectorRouting(s string) bool {
+	_, ok := canvasConnectorRoutingSet[s]
 	return ok
 }
