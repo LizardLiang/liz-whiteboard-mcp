@@ -23,4 +23,6 @@ deploy/oauth-private.pem
 # Playwright e2e artifacts (see playwright.config.ts)
 test-results/
 playwright-report/
+# Screenshots the demo spec writes; regenerate by running it.
+demo-artifacts/
 e2e/.auth/

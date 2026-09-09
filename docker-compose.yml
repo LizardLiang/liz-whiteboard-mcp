@@ -47,6 +47,7 @@ services:
       COLLAB_TOKEN_URL: http://app:3000/api/collab-token       # internal collab-token mint
       LIZ_CANVAS_BOARD_API_URL: http://app:3000/api/canvas-boards  # internal canvas-board lifecycle route
       LIZ_MCP_LIFECYCLE_API_URL: http://app:3000/api/mcp-lifecycle # internal project/folder/whiteboard lifecycle route
+      LIZ_MCP_TABLE_REFERENCE_API_URL: http://app:3000/api/table-references # internal cross-file table reference route
       COLLAB_RESOURCE_URI: ${PUBLIC_ORIGIN:-http://localhost:8080}
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
     volumes:

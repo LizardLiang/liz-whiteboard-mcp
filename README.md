@@ -217,6 +217,7 @@ No API keys or copied cookies required.
 | `COLLAB_TOKEN_URL` / `COLLAB_RESOURCE_URI` | AS collab-token endpoint and the collaboration token audience. |
 | `LIZ_CANVAS_BOARD_API_URL` | App route for canvas board create / rename / delete (default `http://localhost:3000/api/canvas-boards`). Only the three `*_canvas_board` tools use it. |
 | `LIZ_MCP_LIFECYCLE_API_URL` | App route for project, folder and ER whiteboard create / update / delete (default `http://localhost:3000/api/mcp-lifecycle`). The nine `*_project`, `*_folder` and `*_whiteboard` lifecycle tools use it. The app must carry this route; deploy the app before this server. |
+| `LIZ_MCP_TABLE_REFERENCE_API_URL` | App route for cross-file table references (default `http://localhost:3000/api/table-references`). The four `*_table_reference` tools use it. The app must carry this route; deploy the app before this server. |
 | `MCP_DEV_AUTH`, `MCP_DEV_STUB_TOKEN`, `MCP_DEV_USER_ID` | **Dev only** — enable the stub verifier. Never set in production. |
 
 ## Project layout

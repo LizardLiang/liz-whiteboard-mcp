@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/appapi"
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 )
 
@@ -46,6 +47,17 @@ func tableReferenceFnsRefusing(t *testing.T) tableReferenceFns {
 			t.Error("listReferences called; this test did not expect a route call")
 			return nil, nil
 		},
+		confirmNameOf: func(context.Context, string) (*data.ReferenceConfirmName, error) {
+			t.Error("confirmNameOf called; this test did not expect a name read")
+			return nil, nil
+		},
+	}
+}
+
+// referenceNamed makes confirmNameOf report a live reference called name.
+func referenceNamed(name string) func(context.Context, string) (*data.ReferenceConfirmName, error) {
+	return func(context.Context, string) (*data.ReferenceConfirmName, error) {
+		return &data.ReferenceConfirmName{Name: name, IsReference: true}, nil
 	}
 }
 
@@ -234,6 +246,7 @@ func TestDeleteTableReferenceRejectsBadTableID(t *testing.T) {
 func TestDeleteTableReferenceDeletesOnceConfirmed(t *testing.T) {
 	var deletedID string
 	fns := tableReferenceFnsRefusing(t)
+	fns.confirmNameOf = referenceNamed("orders")
 	fns.deleteReference = func(_ context.Context, _ string, tableID string) (map[string]any, error) {
 		deletedID = tableID
 		return map[string]any{"table": map[string]any{"id": tableID}}, nil
@@ -244,6 +257,69 @@ func TestDeleteTableReferenceDeletesOnceConfirmed(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, refNodeID, deletedID)
+}
+
+// THE REGRESSION THIS FILE EXISTED WITHOUT. The old guard checked only that
+// confirmName was non-empty and never compared it, so any string deleted the
+// node and cascaded every relationship drawn from it. The route call must not
+// happen at all — tableReferenceFnsRefusing fails the test if it does.
+func TestDeleteTableReferenceRefusesMismatchedConfirmName(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	fns.confirmNameOf = referenceNamed("orders")
+
+	_, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "not-the-name"})
+
+	requireValidationField(t, err, "confirmName")
+	assert.Contains(t, err.Error(), "Nothing was deleted")
+	assert.Contains(t, err.Error(), "sourceTableName")
+}
+
+// The name compared is the SOURCE table's, as list_table_references reports it.
+// A reference whose source is gone falls back to the local row's name, and the
+// guard must accept exactly that — demanding a name the agent was never shown
+// would make a dangling reference undeletable.
+func TestDeleteTableReferenceAcceptsFallbackNameWhenSourceMissing(t *testing.T) {
+	var deleted bool
+	fns := tableReferenceFnsRefusing(t)
+	fns.confirmNameOf = referenceNamed("users")
+	fns.deleteReference = func(_ context.Context, _ string, tableID string) (map[string]any, error) {
+		deleted = true
+		return map[string]any{"table": map[string]any{"id": tableID}}, nil
+	}
+
+	_, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "users"})
+
+	require.NoError(t, err)
+	assert.True(t, deleted)
+}
+
+func TestDeleteTableReferenceRefusesUnknownTable(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	fns.confirmNameOf = func(context.Context, string) (*data.ReferenceConfirmName, error) {
+		return nil, nil
+	}
+
+	_, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+	requireMcpCode(t, err, mcperr.NotFound)
+}
+
+// An ordinary table is not a reference. Deleting one here would cascade a real
+// table's relationships under a tool the caller thinks only removes a stand-in.
+func TestDeleteTableReferenceRefusesOrdinaryTable(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	fns.confirmNameOf = func(context.Context, string) (*data.ReferenceConfirmName, error) {
+		return &data.ReferenceConfirmName{Name: "orders", IsReference: false}, nil
+	}
+
+	_, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+	requireValidationField(t, err, "tableId")
+	assert.Contains(t, err.Error(), "delete_table")
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────

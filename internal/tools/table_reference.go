@@ -16,7 +16,9 @@
 // DESTRUCTIVE GUARDS. Two of these tools destroy relationships:
 //
 //   - delete_table_reference removes the node and cascades every relationship
-//     drawn from it, so it requires a confirmName like the other deletes.
+//     drawn from it, so it requires a confirmName like the other deletes. The
+//     name is compared against the SOURCE table's name as list_table_references
+//     reports it, read straight from SQLite before the delete request is sent.
 //   - update_table_reference deletes the relationships whose endpoint column
 //     does not survive the re-target. It does NOT require confirmation — the
 //     agent asked to point the reference somewhere else, and the result reports
@@ -37,6 +39,7 @@ import (
 
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/appapi"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/auth"
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 )
 
@@ -74,6 +77,10 @@ type tableReferenceFns struct {
 	updateReference func(ctx context.Context, userID, tableID string, req appapi.UpdateTableReferenceRequest) (*appapi.UpdateTableReferenceResult, error)
 	deleteReference func(ctx context.Context, userID, tableID string) (map[string]any, error)
 	listReferences  func(ctx context.Context, userID, whiteboardID string) ([]map[string]any, error)
+	// confirmNameOf reads, straight from SQLite, the name delete_table_reference
+	// must match confirmName against. Direct read rather than a route call: the
+	// guard has to run BEFORE the destructive request leaves this process.
+	confirmNameOf func(ctx context.Context, tableID string) (*data.ReferenceConfirmName, error)
 }
 
 // prodTableReferenceFns is the production pipeline.
@@ -83,6 +90,7 @@ func prodTableReferenceFns() tableReferenceFns {
 		updateReference: appapi.UpdateTableReference,
 		deleteReference: appapi.DeleteTableReference,
 		listReferences:  appapi.ListTableReferences,
+		confirmNameOf:   data.FindReferenceConfirmName,
 	}
 }
 
@@ -93,7 +101,7 @@ func validateColumnIDs(ids []string, required bool) *mcperr.McpError {
 		if required {
 			return mcperr.NewField(mcperr.ValidationError,
 				"sourceColumnIds must name at least one column of the source table. "+
-					"Read the table's columns with get_schema_summary or get_board first.",
+					"Read the table's columns with get_board first (get_schema_summary omits UUIDs).",
 				"sourceColumnIds")
 		}
 		return nil
@@ -226,6 +234,27 @@ func deleteTableReferenceWithFns(
 			"confirmName is required: pass the referenced table's exact name to confirm this delete. "+
 				"Read it with list_table_references first.", "confirmName")
 	}
+
+	expected, err := fns.confirmNameOf(ctx, in.TableID)
+	if err != nil {
+		return nil, err
+	}
+	if expected == nil {
+		return nil, mcperr.New(mcperr.NotFound,
+			fmt.Sprintf("Table reference %s not found.", in.TableID))
+	}
+	if !expected.IsReference {
+		return nil, mcperr.NewField(mcperr.ValidationError,
+			fmt.Sprintf("Table %s is an ordinary table, not a cross-file reference. "+
+				"Nothing was deleted. Use delete_table for a real table.", in.TableID), "tableId")
+	}
+	if expected.Name != in.ConfirmName {
+		return nil, mcperr.NewField(mcperr.ValidationError,
+			fmt.Sprintf("confirmName does not match the referenced table's name for %s. "+
+				"Nothing was deleted. Read the reference with list_table_references and pass "+
+				"its exact sourceTableName.", in.TableID), "confirmName")
+	}
+
 	return fns.deleteReference(ctx, userID, in.TableID)
 }
 
@@ -257,8 +286,9 @@ func RegisterTableReferenceTools(s *mcp.Server) {
 		Description: "Place a node on one ER whiteboard that references a table living on ANOTHER " +
 			"whiteboard of the same project, so a local table can be related to it. Name the " +
 			"source board, the table, and the columns to expose; each exposed column becomes a " +
-			"connectable handle that create_relationship can target. Use list_whiteboards and " +
-			"get_schema_summary to find the ids. Requires the EDITOR role or higher.",
+			"connectable handle that create_relationship can target. Use list_whiteboards to find " +
+			"the source board and get_board to find the table and column ids — get_schema_summary " +
+			"omits UUIDs and cannot supply them. Requires the EDITOR role or higher.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createTableReferenceInput) (*mcp.CallToolResult, any, error) {
 		reference, err := createTableReferenceWithFns(ctx, prodTableReferenceFns(), auth.UserID(ctx), in)
 		if err != nil {
