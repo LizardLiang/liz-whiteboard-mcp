@@ -43,6 +43,17 @@ func GetCanvasBoardProjectID(ctx context.Context, canvasBoardID string) (string,
 		`SELECT "projectId" FROM "CanvasBoard" WHERE id = $1`, canvasBoardID)
 }
 
+// GetFolderProjectID resolves the projectId for a folder by ID.
+// Returns "" if the folder does not exist.
+//
+// Folder.projectId is a real column even on a nested folder — the app stores it
+// on every row rather than walking parentFolderId — so this needs no join and
+// is unaffected by a broken parent chain.
+func GetFolderProjectID(ctx context.Context, folderID string) (string, error) {
+	return resolveProjectID(ctx,
+		`SELECT "projectId" FROM "Folder" WHERE id = $1`, folderID)
+}
+
 // GetTableProjectID resolves the projectId for a table by ID (via its whiteboard).
 // Returns "" if the table does not exist.
 func GetTableProjectID(ctx context.Context, tableID string) (string, error) {

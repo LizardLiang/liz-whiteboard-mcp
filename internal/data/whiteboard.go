@@ -46,6 +46,29 @@ func FindWhiteboardsByProjectID(ctx context.Context, projectID string) ([]Whiteb
 	return out, rows.Err()
 }
 
+// FindWhiteboardByID returns one whiteboard row without its diagram, or nil if
+// it does not exist. delete_whiteboard's confirmName guard needs the stored
+// name and nothing else; loading every table and column to read it would be
+// wasteful on a large board.
+//
+// Not membership-scoped: callers run an auth assert first, and scoping here
+// would turn a clean FORBIDDEN into a misleading NOT_FOUND.
+func FindWhiteboardByID(ctx context.Context, id string) (*Whiteboard, error) {
+	var w Whiteboard
+	err := db.Pool().QueryRow(ctx,
+		`SELECT id, name, "projectId", "folderId", "canvasState", "textSource", "createdAt", "updatedAt"
+		   FROM "Whiteboard" WHERE id = $1`, id).
+		Scan(&w.ID, &w.Name, &w.ProjectID, &w.FolderID,
+			&w.CanvasState, &w.TextSource, &w.CreatedAt, &w.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &w, nil
+}
+
 // ListTableRectsByWhiteboardID returns the bounding box of every table in a
 // whiteboard, used for non-overlapping placement of new tables.
 //

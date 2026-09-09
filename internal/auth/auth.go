@@ -71,3 +71,22 @@ func AssertProjectAccess(ctx context.Context, userID, projectID string) error {
 func AssertSchemaEditAccess(ctx context.Context, userID, projectID string) error {
 	return assertSchemaEditAccessWithFn(ctx, checkSchemaEditAccessDB, userID, projectID)
 }
+
+// AssertProjectAdminAccess asserts that a user has ADMIN or higher on a project.
+// Used by update_project, matching the app's updateProjectFn gate. Returns
+// FORBIDDEN for EDITOR and VIEWER members.
+//
+// This near-side check is not the authority: the app's /api/mcp-lifecycle route
+// re-checks with requireServerFnRole. It exists so a denied call reports a
+// clean role error without a round trip.
+func AssertProjectAdminAccess(ctx context.Context, userID, projectID string) error {
+	return assertProjectAdminAccessWithFn(ctx, checkProjectAdminAccessDB, userID, projectID)
+}
+
+// AssertProjectOwnerAccess asserts that a user owns a project.
+// Used by delete_project, matching the app's deleteProjectFn gate. Returns
+// FORBIDDEN for every member role, ADMIN included — ownership is the
+// Project.ownerId column, not a ProjectMember role.
+func AssertProjectOwnerAccess(ctx context.Context, userID, projectID string) error {
+	return assertProjectOwnerAccessWithFn(ctx, checkProjectOwnerAccessDB, userID, projectID)
+}

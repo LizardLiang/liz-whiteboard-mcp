@@ -216,7 +216,7 @@ func RegisterCanvasBoardTools(s *mcp.Server) {
 		Description: "Create a new canvas board in a project (freeform FigJam-style board, NOT an " +
 			"ER diagram whiteboard). Returns the new board, whose id the canvas element tools take. " +
 			"Requires the EDITOR role or higher on the project. " +
-			"For an ER diagram whiteboard, create it in the app instead.",
+			"For an ER diagram whiteboard, use create_whiteboard instead.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasBoardInput) (*mcp.CallToolResult, any, error) {
 		board, err := createCanvasBoardWithFns(ctx, prodCanvasBoardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {

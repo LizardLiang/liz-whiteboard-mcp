@@ -16,7 +16,7 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 ## Table of contents
 
 - [What it does](#what-it-does)
-- [The 34 MCP tools](#the-34-mcp-tools)
+- [The 49 MCP tools](#the-49-mcp-tools)
 - [How it works](#how-it-works)
 - [How to install & run](#how-to-install--run)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
@@ -40,11 +40,11 @@ Exposes the liz-whiteboard ER diagram as **MCP tools** so an LLM agent can:
 
 Reads go straight to the app's SQLite database; writes are sent to the live collaboration server over Socket.IO and broadcast to every connected user in real time. Every request is scoped to the authenticated user (project-membership checks).
 
-## The 34 MCP tools
+## The 49 MCP tools
 
 | Group | Tools |
 |---|---|
-| Discovery | `list_projects`, `list_whiteboards` |
+| Discovery | `list_projects`, `list_whiteboards`, `list_folders`, `get_project_tree` |
 | Read | `get_board`, `get_schema_summary`, `get_table_ddl` |
 | Tables | `create_table`, `update_table`, `delete_table` |
 | Columns | `create_column`, `update_column`, `delete_column`, `reorder_columns` |
@@ -57,6 +57,16 @@ Reads go straight to the app's SQLite database; writes are sent to the live coll
 | Canvas elements | `create_canvas_element`, `update_canvas_element`, `delete_canvas_element` |
 | Canvas connectors | `create_canvas_connector`, `update_canvas_connector` |
 | Canvas boards | `create_canvas_board`, `update_canvas_board`, `delete_canvas_board` |
+| Projects | `create_project`, `update_project`, `delete_project` |
+| Folders | `create_folder`, `update_folder`, `delete_folder` |
+| Whiteboards | `create_whiteboard`, `update_whiteboard`, `delete_whiteboard` |
+| Table references | `create_table_reference`, `update_table_reference`, `delete_table_reference`, `list_table_references` |
+
+### Cross-file table references
+
+A reference node stands in for a table that lives on **another ER whiteboard of the same project**, so one board can show a relationship to a table it does not own. It is stored as a table row carrying the source ids plus stub columns for the columns you expose, which means an ordinary `create_relationship` connects a local table to it — the reference tools only manage the reference itself.
+
+`list_table_references` resolves each one against its source and reports `missing: true` when that table or file has been deleted. A missing reference keeps its relationships rather than taking them down with it, so you can re-target it with `update_table_reference` or remove it deliberately.
 
 ### Canvas boards vs ER whiteboards
 
@@ -206,6 +216,7 @@ No API keys or copied cookies required.
 | `MCP_CLIENT_ID` / `MCP_CLIENT_SECRET` | Confidential-client credentials used to mint collaboration tokens from the AS (`MCP_CLIENT_ID` defaults to `mcp-server`). |
 | `COLLAB_TOKEN_URL` / `COLLAB_RESOURCE_URI` | AS collab-token endpoint and the collaboration token audience. |
 | `LIZ_CANVAS_BOARD_API_URL` | App route for canvas board create / rename / delete (default `http://localhost:3000/api/canvas-boards`). Only the three `*_canvas_board` tools use it. |
+| `LIZ_MCP_LIFECYCLE_API_URL` | App route for project, folder and ER whiteboard create / update / delete (default `http://localhost:3000/api/mcp-lifecycle`). The nine `*_project`, `*_folder` and `*_whiteboard` lifecycle tools use it. The app must carry this route; deploy the app before this server. |
 | `MCP_DEV_AUTH`, `MCP_DEV_STUB_TOKEN`, `MCP_DEV_USER_ID` | **Dev only** — enable the stub verifier. Never set in production. |
 
 ## Project layout
