@@ -53,6 +53,10 @@ func TestToolCountMatchesDocumentation(t *testing.T) {
 	tools.RegisterCanvasWriteTools(server)
 	tools.RegisterCanvasConnectorTools(server)
 	tools.RegisterCanvasBoardTools(server)
+	tools.RegisterProjectTools(server)
+	tools.RegisterFolderTools(server)
+	tools.RegisterWhiteboardTools(server)
+	tools.RegisterTableReferenceTools(server)
 
 	// Ask the server what it advertises, over a real session. mcp.Server keeps
 	// its tool list unexported, and the advertised list is what an agent

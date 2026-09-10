@@ -51,6 +51,29 @@ const schemaEditAccessSQL = `SELECT id FROM "Project"
       )
     )`
 
+// projectAdminAccessSQL checks ADMIN+ role: owner or ProjectMember with role
+// ADMIN. Used by update_project, which the app gates at ADMIN
+// (updateProjectFn in src/routes/api/projects.ts). An EDITOR who may create
+// tables all day still may not rename the project they live in.
+const projectAdminAccessSQL = `SELECT id FROM "Project"
+  WHERE id = $1
+    AND (
+      "ownerId" = $2
+      OR EXISTS (
+        SELECT 1 FROM "ProjectMember"
+        WHERE "projectId" = $1
+          AND "userId" = $2
+          AND "role" = 'ADMIN'
+      )
+    )`
+
+// projectOwnerAccessSQL checks OWNER: the Project.ownerId column alone. There
+// is no OWNER value in the ProjectMember.role enum — ownership is the column,
+// which is why this query has no EXISTS arm at all. Used by delete_project,
+// which the app restricts to the owner (deleteProjectFn).
+const projectOwnerAccessSQL = `SELECT id FROM "Project"
+  WHERE id = $1 AND "ownerId" = $2`
+
 // ---------------------------------------------------------------------------
 // Injectable function types — production code passes real DB calls;
 // tests pass mocks.
@@ -139,4 +162,38 @@ func assertSchemaEditAccessWithFn(
 ) error {
 	return assertAccessWithFn(ctx, check, userID, projectID,
 		fmt.Sprintf("User %s does not have EDITOR access to project %s.", userID, projectID))
+}
+
+// checkProjectAdminAccessDB is the production ADMIN+ role checker used by
+// update_project. Returns false for EDITOR and VIEWER members.
+func checkProjectAdminAccessDB(ctx context.Context, projectID, userID string) (bool, error) {
+	return checkAccessDB(ctx, projectAdminAccessSQL, projectID, userID)
+}
+
+// checkProjectOwnerAccessDB is the production OWNER checker used by
+// delete_project. Returns false for every member role, ADMIN included.
+func checkProjectOwnerAccessDB(ctx context.Context, projectID, userID string) (bool, error) {
+	return checkAccessDB(ctx, projectOwnerAccessSQL, projectID, userID)
+}
+
+// assertProjectAdminAccessWithFn is the injectable core of
+// AssertProjectAdminAccess.
+func assertProjectAdminAccessWithFn(
+	ctx context.Context,
+	check checkAccessFn,
+	userID, projectID string,
+) error {
+	return assertAccessWithFn(ctx, check, userID, projectID,
+		fmt.Sprintf("User %s does not have ADMIN access to project %s.", userID, projectID))
+}
+
+// assertProjectOwnerAccessWithFn is the injectable core of
+// AssertProjectOwnerAccess.
+func assertProjectOwnerAccessWithFn(
+	ctx context.Context,
+	check checkAccessFn,
+	userID, projectID string,
+) error {
+	return assertAccessWithFn(ctx, check, userID, projectID,
+		fmt.Sprintf("User %s is not the owner of project %s.", userID, projectID))
 }

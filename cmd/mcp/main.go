@@ -173,6 +173,10 @@ func main() {
 	tools.RegisterCanvasWriteTools(server)     // create_canvas_element, update_canvas_element, delete_canvas_element
 	tools.RegisterCanvasConnectorTools(server) // create_canvas_connector, update_canvas_connector
 	tools.RegisterCanvasBoardTools(server)     // create_canvas_board, update_canvas_board, delete_canvas_board
+	tools.RegisterProjectTools(server)         // create_project, update_project, delete_project
+	tools.RegisterFolderTools(server)          // create_folder, update_folder, delete_folder
+	tools.RegisterWhiteboardTools(server)      // create_whiteboard, update_whiteboard, delete_whiteboard
+	tools.RegisterTableReferenceTools(server)  // create/update/delete/list_table_reference(s)
 
 	// Build the Streamable HTTP handler, then wrap with bearer middleware.
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
