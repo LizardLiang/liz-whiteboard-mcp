@@ -23,6 +23,13 @@ services:
       # Token TTLs (seconds). Defaults: access=3600 (1 hr), refresh=604800 (7 days).
       OAUTH_ACCESS_TOKEN_TTL: ${OAUTH_ACCESS_TOKEN_TTL:-3600}
       OAUTH_REFRESH_TOKEN_TTL: ${OAUTH_REFRESH_TOKEN_TTL:-604800}
+      # Password reset: Resend sends the email, Turnstile guards the request form.
+      # Unset Turnstile keys make every reset request fail with CAPTCHA_FAILED.
+      APP_BASE_URL: ${APP_BASE_URL:-${PUBLIC_ORIGIN:-http://localhost:8080}}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+      TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
     volumes:
       - appdata:/app/data
       - ./deploy/oauth-private.pem:/run/oauth-private.pem:ro
