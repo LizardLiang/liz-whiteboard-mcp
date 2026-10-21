@@ -57,3 +57,17 @@ export const OAUTH_CLIENT_ID = 'mcp-claude'
  *  instead of running a loopback server, which is equivalent and has no port
  *  to collide with. */
 export const OAUTH_REDIRECT_URI = 'http://localhost:10000/callback'
+
+/** Boards seeded by the app's e2e/seed-render.ts (project ADMIN: EDITOR_USER;
+ *  VIEWER_USER is NOT a member, which the no-access case relies on). The Chinese
+ *  names are deliberate: the images must paint CJK text. */
+export const RENDER_IDS = {
+  project: 'e1000000-0000-4000-8000-000000000001',
+  whiteboard: 'e1000000-0000-4000-8000-000000000002',
+  usersTable: 'e1000000-0000-4000-8000-000000000003',
+  ordersTable: 'e1000000-0000-4000-8000-000000000004',
+  farTable: 'e1000000-0000-4000-8000-000000000005',
+  canvasBoard: 'e1000000-0000-4000-8000-000000000010',
+  canvasRect: 'e1000000-0000-4000-8000-000000000011',
+  canvasText: 'e1000000-0000-4000-8000-000000000012',
+} as const

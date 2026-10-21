@@ -33,6 +33,10 @@ services:
     volumes:
       - appdata:/app/data
       - ./deploy/oauth-private.pem:/run/oauth-private.pem:ro
+    networks:
+      default:
+        aliases:
+          - liz-app # the renderer must not use the bare name "app", see LIZ_RENDER_APP_URL on the mcp service
     expose:
       - "3000"
     healthcheck:
@@ -55,6 +59,12 @@ services:
       LIZ_CANVAS_BOARD_API_URL: http://app:3000/api/canvas-boards  # internal canvas-board lifecycle route
       LIZ_MCP_LIFECYCLE_API_URL: http://app:3000/api/mcp-lifecycle # internal project/folder/whiteboard lifecycle route
       LIZ_MCP_TABLE_REFERENCE_API_URL: http://app:3000/api/table-references # internal cross-file table reference route
+      LIZ_RENDER_TOKEN_URL: http://app:3000/api/render-token # internal render-token mint (board images)
+      LIZ_RENDER_CDP_URL: http://renderer:9222  # headless Chromium sidecar DevTools endpoint
+      # Origin the SIDECAR uses to reach the app. NOT http://app:3000: Chromium
+      # treats the bare host "app" as the .app TLD, which is on the HSTS preload
+      # list, so it upgrades to https and fails with ERR_SSL_PROTOCOL_ERROR.
+      LIZ_RENDER_APP_URL: http://liz-app:3000
       COLLAB_RESOURCE_URI: ${PUBLIC_ORIGIN:-http://localhost:8080}
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
     volumes:
@@ -62,8 +72,17 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      renderer:
+        condition: service_started
     expose:
       - "3011"
+
+  renderer: # headless Chromium + CJK fonts; screenshots the app's /render pages for the MCP image tools
+    build:
+      context: ./deploy/renderer
+    shm_size: 1gb # Chromium needs more than Docker's 64MB /dev/shm for large pages
+    expose:
+      - "9222"  # DevTools: compose network only, never published
 
   proxy: # single public origin
     image: caddy:2

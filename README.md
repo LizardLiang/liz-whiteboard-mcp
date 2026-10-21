@@ -16,7 +16,7 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 ## Table of contents
 
 - [What it does](#what-it-does)
-- [The 49 MCP tools](#the-49-mcp-tools)
+- [The 51 MCP tools](#the-51-mcp-tools)
 - [How it works](#how-it-works)
 - [How to install & run](#how-to-install--run)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
@@ -40,7 +40,7 @@ Exposes the liz-whiteboard ER diagram as **MCP tools** so an LLM agent can:
 
 Reads go straight to the app's SQLite database; writes are sent to the live collaboration server over Socket.IO and broadcast to every connected user in real time. Every request is scoped to the authenticated user (project-membership checks).
 
-## The 49 MCP tools
+## The 51 MCP tools
 
 | Group | Tools |
 |---|---|
@@ -61,6 +61,27 @@ Reads go straight to the app's SQLite database; writes are sent to the live coll
 | Folders | `create_folder`, `update_folder`, `delete_folder` |
 | Whiteboards | `create_whiteboard`, `update_whiteboard`, `delete_whiteboard` |
 | Table references | `create_table_reference`, `update_table_reference`, `delete_table_reference`, `list_table_references` |
+| Board images | `get_board_image`, `get_canvas_board_image` |
+
+### Board images
+
+`get_board_image` (ER whiteboards) and `get_canvas_board_image` (canvas boards) let an agent see a board. The server opens the app's own render page in a headless Chromium sidecar and returns PNG screenshots as MCP image content. Each image is followed by a text block with the board-coordinate rectangle it shows.
+
+| Argument | Meaning |
+|---|---|
+| `mode` | `fit` (default) shows the whole board in one image. `tiles` returns one image per occupied tile at readable zoom. |
+| `focusIds` | Up to 50 table, area, or shape ids (canvas: element ids). Frames only those items. Only with `mode: "fit"`. |
+| `theme` | `light` (default) or `dark`. |
+
+Image size is 1568 x 1568 CSS pixels at device pixel ratio 1, the longest edge Claude accepts without downscaling. Tiles are cut at zoom 1.0, empty tiles are skipped, and one call returns at most 12; a board that needs more fails with a validation error that suggests `focusIds`. An empty board returns the text `board is empty` and no image. An unknown id in `focusIds` fails with a validation error naming it. A board the caller cannot read returns the same not-found error as `get_board`.
+
+Access needs the VIEWER role. The server asks the app for a render token (`POST /api/render-token`, authenticated with the collaboration JWT). The token lives 60 seconds and opens one board's render page. The server only ever navigates to `LIZ_RENDER_APP_URL`; a caller cannot choose the URL. The renderer is the `renderer` service in `docker-compose.yml` (`deploy/renderer/Dockerfile`, Chromium plus Noto CJK fonts). It exposes port 9222 to the compose network only. If the renderer is down or a page does not finish drawing in 15 seconds, the tool fails with an error that names the renderer.
+
+| Variable | Meaning |
+|---|---|
+| `LIZ_RENDER_CDP_URL` | DevTools address of the renderer (default `http://localhost:9222`; compose: `http://renderer:9222`). The server resolves the host to an IP, because headless Chromium rejects non-IP, non-localhost `Host` headers. |
+| `LIZ_RENDER_APP_URL` | Origin the **renderer** uses to reach the app (default `http://localhost:3000`; compose: `http://liz-app:3000`; avoid the bare name `app`, which Chromium upgrades to HTTPS because `.app` is an HSTS-preloaded TLD). |
+| `LIZ_RENDER_TOKEN_URL` | App route that mints render tokens (default `http://localhost:3000/api/render-token`; compose: `http://app:3000/api/render-token`). |
 
 ### Cross-file table references
 
@@ -217,6 +238,7 @@ No API keys or copied cookies required.
 | `COLLAB_TOKEN_URL` / `COLLAB_RESOURCE_URI` | AS collab-token endpoint and the collaboration token audience. |
 | `LIZ_CANVAS_BOARD_API_URL` | App route for canvas board create / rename / delete (default `http://localhost:3000/api/canvas-boards`). Only the three `*_canvas_board` tools use it. |
 | `LIZ_MCP_LIFECYCLE_API_URL` | App route for project, folder and ER whiteboard create / update / delete (default `http://localhost:3000/api/mcp-lifecycle`). The nine `*_project`, `*_folder` and `*_whiteboard` lifecycle tools use it. The app must carry this route; deploy the app before this server. |
+| `LIZ_RENDER_CDP_URL`, `LIZ_RENDER_APP_URL`, `LIZ_RENDER_TOKEN_URL` | Board image tools; see [Board images](#board-images). |
 | `LIZ_MCP_TABLE_REFERENCE_API_URL` | App route for cross-file table references (default `http://localhost:3000/api/table-references`). The four `*_table_reference` tools use it. The app must carry this route; deploy the app before this server. |
 | `MCP_DEV_AUTH`, `MCP_DEV_STUB_TOKEN`, `MCP_DEV_USER_ID` | **Dev only** — enable the stub verifier. Never set in production. |
 

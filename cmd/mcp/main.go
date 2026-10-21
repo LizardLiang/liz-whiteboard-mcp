@@ -177,6 +177,7 @@ func main() {
 	tools.RegisterFolderTools(server)          // create_folder, update_folder, delete_folder
 	tools.RegisterWhiteboardTools(server)      // create_whiteboard, update_whiteboard, delete_whiteboard
 	tools.RegisterTableReferenceTools(server)  // create/update/delete/list_table_reference(s)
+	tools.RegisterBoardImageTools(server)      // get_board_image, get_canvas_board_image
 
 	// Build the Streamable HTTP handler, then wrap with bearer middleware.
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
@@ -210,7 +211,7 @@ func main() {
 		Addr:         listenAddr,
 		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 150 * time.Second, // board images render up to 13 pages in one call
 	}
 
 	// Graceful shutdown on SIGINT/SIGTERM: close sockets, drain HTTP (so in-flight

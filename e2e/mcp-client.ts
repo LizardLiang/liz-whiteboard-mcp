@@ -116,6 +116,21 @@ export class McpClient {
     return { data: data as T, isError: result?.isError === true }
   }
 
+  /**
+   * callTool that keeps every content block. The image tools return image
+   * blocks (base64 `data`) followed by text blocks, which `callTool` would drop.
+   */
+  async callToolRaw(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ content: Array<ContentBlock>; isError: boolean }> {
+    const result = await this.rpc('tools/call', { name, arguments: args })
+    return {
+      content: (result?.content ?? []) as Array<ContentBlock>,
+      isError: result?.isError === true,
+    }
+  }
+
   /** callTool for the happy path: throws if the tool refused. */
   async expectOk<T = any>(
     name: string,
@@ -127,6 +142,14 @@ export class McpClient {
     }
     return result.data
   }
+}
+
+/** One MCP content block as it arrives on the wire. */
+export interface ContentBlock {
+  type: string
+  text?: string
+  data?: string
+  mimeType?: string
 }
 
 /** Shape of the error payload a refused tool call returns. */

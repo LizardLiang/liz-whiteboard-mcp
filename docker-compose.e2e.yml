@@ -47,6 +47,15 @@ services:
         RUN chmod +x /app/entrypoint.sh
         CMD ["/app/entrypoint.sh"]
 
+  # The renderer is what e2e/board-image-mcp.spec.ts drives through the MCP
+  # tools. It builds from the same context as docker-compose.yml; it is restated
+  # here so the e2e stack names every service it depends on. Still no `ports`:
+  # DevTools stays on the compose network.
+  renderer:
+    build:
+      context: ./deploy/renderer
+    shm_size: 1gb
+
   proxy:
     ports: !override
       - "127.0.0.1:18080:8080"
