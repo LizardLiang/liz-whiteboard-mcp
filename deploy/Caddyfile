@@ -3,6 +3,12 @@
 {
 	admin off
 	auto_https off
+	# Host nginx (reached via the Docker gateway) is the only peer. Trusting
+	# private ranges makes Caddy append to nginx's X-Forwarded-For instead of
+	# replacing it, so the app rate-limits by the real client IP.
+	servers {
+		trusted_proxies static private_ranges
+	}
 }
 
 :8080 {
