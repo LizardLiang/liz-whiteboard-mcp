@@ -6,14 +6,15 @@
 // Header handling lives in the Go server (cmd/mcp/toolsets.go), but only a running
 // stack proves Caddy forwards the header and the bearer middleware still runs first.
 import { expect, test } from '@playwright/test'
-import { EDITOR_USER, IDS, MCP_URL } from './fixtures'
+import { IDS, MCP_URL } from './fixtures'
+import { EDITOR_STORAGE_STATE } from './global-setup'
 import { McpClient } from './mcp-client'
 import { mintAccessToken } from './oauth'
 
 let token: string
 
 test.beforeAll(async () => {
-  token = await mintAccessToken(EDITOR_USER)
+  token = await mintAccessToken(EDITOR_STORAGE_STATE)
 })
 
 async function connected(headers: Record<string, string> = {}): Promise<McpClient> {

@@ -6,25 +6,28 @@
 // a user who actually logged in. A forged token would prove the tools work
 // against a verifier that was never exercised.
 //
-// The flow, in order:
-//   1. Log in through the real /login form so the browser context holds a
-//      session_token cookie. NODE_ENV=production in the container disables the
-//      DEBUG_SUPER_PASSWORD bypass, so this must be a genuine seeded account.
-//   2. GET /authorize with PKCE S256. `mcp-claude` is a first-party client and
-//      auto-approves, so the response is a 302 straight to the redirect URI.
-//      The request is issued from the browser context, which is what carries
-//      the session cookie.
-//   3. Read the code from the Location header. The registered redirect is a
-//      loopback URI; running an actual listener on :10000 would add a port
-//      collision for no extra coverage, since nothing about the AS behaves
-//      differently when the client is a real socket.
-//   4. POST /token with the code_verifier.
+// Two steps, split so a run logs each user in ONCE:
+//   1. `logIn` (global setup only) drives the real /login form and saves the
+//      session_token cookie as a Playwright storageState file.
+//      NODE_ENV=production in the container disables the DEBUG_SUPER_PASSWORD
+//      bypass, so this must be a genuine seeded account. The app allows 30
+//      logins per IP per 15 min (app src/lib/auth/auth-limits.ts); one login
+//      per user per run keeps back-to-back runs far below that limit.
+//   2. `mintAccessToken` (every spec) reuses that cookie:
+//      a. GET /authorize with PKCE S256. `mcp-claude` is a first-party client
+//         and auto-approves, so the response is a 302 straight to the
+//         redirect URI.
+//      b. Read the code from the Location header. The registered redirect is a
+//         loopback URI; running an actual listener on :10000 would add a port
+//         collision for no extra coverage, since nothing about the AS behaves
+//         differently when the client is a real socket.
+//      c. POST /token with the code_verifier.
 //
 // `resource` is the CANONICAL PUBLIC MCP URI on both calls. Sending an internal
 // host (http://app:3000/mcp) mints a token whose audience the resource server
 // rejects, and every later tool call 401s.
 import crypto from 'node:crypto'
-import { chromium } from '@playwright/test'
+import { chromium, request } from '@playwright/test'
 import { OAUTH_CLIENT_ID, OAUTH_REDIRECT_URI, ORIGIN, MCP_URL } from './fixtures'
 
 function base64url(buffer: Buffer): string {
@@ -41,13 +44,13 @@ export interface Credentials {
 }
 
 /**
- * Log `user` in and return a bearer token scoped to the MCP resource.
- *
- * Opens and closes its own browser: the token outlives the browser, and the
- * spec's own pages must not inherit this login (the live-render test needs to
- * choose which user is watching the board).
+ * Log `user` in through the real /login form and save the session cookie to
+ * `storageStatePath`. Global setup calls this once per user per run.
  */
-export async function mintAccessToken(user: Credentials): Promise<string> {
+export async function logIn(
+  user: Credentials,
+  storageStatePath: string,
+): Promise<void> {
   const browser = await chromium.launch()
   try {
     const context = await browser.newContext()
@@ -80,10 +83,24 @@ export async function mintAccessToken(user: Credentials): Promise<string> {
     }
     if (!authenticated) {
       throw new Error(
-        `login did not set session_token for ${user.email} — is the account seeded?`,
+        `login did not set session_token for ${user.email} — is the account ` +
+          `seeded, or did this IP hit the login rate limit?`,
       )
     }
 
+    await context.storageState({ path: storageStatePath })
+  } finally {
+    await browser.close()
+  }
+}
+
+/**
+ * Return a bearer token scoped to the MCP resource for the user whose session
+ * global setup saved at `storageStatePath`. Performs no login.
+ */
+export async function mintAccessToken(storageStatePath: string): Promise<string> {
+  const context = await request.newContext({ storageState: storageStatePath })
+  try {
     const verifier = base64url(crypto.randomBytes(32))
     const challenge = base64url(
       crypto.createHash('sha256').update(verifier).digest(),
@@ -98,9 +115,7 @@ export async function mintAccessToken(user: Credentials): Promise<string> {
       `&resource=${encodeURIComponent(MCP_URL)}` +
       `&state=canvas-mcp-e2e`
 
-    const authorized = await context.request.get(authorizeUrl, {
-      maxRedirects: 0,
-    })
+    const authorized = await context.get(authorizeUrl, { maxRedirects: 0 })
     const location = authorized.headers()['location']
     if (!location) {
       throw new Error(
@@ -109,9 +124,14 @@ export async function mintAccessToken(user: Credentials): Promise<string> {
       )
     }
     const code = new URL(location).searchParams.get('code')
-    if (!code) throw new Error(`no code in redirect: ${location}`)
+    if (!code) {
+      throw new Error(
+        `no code in redirect: ${location} — is the session in ` +
+          `${storageStatePath} still valid?`,
+      )
+    }
 
-    const tokenResponse = await context.request.post(`${ORIGIN}/token`, {
+    const tokenResponse = await context.post(`${ORIGIN}/token`, {
       form: {
         grant_type: 'authorization_code',
         code,
@@ -129,6 +149,6 @@ export async function mintAccessToken(user: Credentials): Promise<string> {
     }
     return body.access_token
   } finally {
-    await browser.close()
+    await context.dispose()
   }
 }

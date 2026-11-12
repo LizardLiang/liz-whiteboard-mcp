@@ -10,7 +10,7 @@
 //
 // Run: bunx playwright test e2e/demo-table-reference.spec.ts
 import { expect, test } from '@playwright/test'
-import { EDITOR_USER, ORIGIN } from './fixtures'
+import { ORIGIN } from './fixtures'
 import { McpClient } from './mcp-client'
 import type { McpErrorPayload } from './mcp-client'
 import { mintAccessToken } from './oauth'
@@ -72,7 +72,7 @@ let agent: McpClient
 const S: Record<string, string> = {}
 
 test.beforeAll(async () => {
-  const bearer = await mintAccessToken(EDITOR_USER)
+  const bearer = await mintAccessToken(EDITOR_STORAGE_STATE)
   agent = new McpClient(bearer)
   await agent.connect()
 })

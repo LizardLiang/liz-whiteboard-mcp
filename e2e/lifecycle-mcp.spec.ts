@@ -19,7 +19,7 @@
 // existed fails every test here with NOT_FOUND from the route, which is checked
 // once, loudly, before any assertion runs.
 import { expect, test } from '@playwright/test'
-import { EDITOR_USER, VIEWER_USER } from './fixtures'
+import { EDITOR_STORAGE_STATE, VIEWER_STORAGE_STATE } from './global-setup'
 import { McpClient } from './mcp-client'
 import type { McpErrorPayload } from './mcp-client'
 import { mintAccessToken } from './oauth'
@@ -97,9 +97,9 @@ async function newProject(name: string): Promise<ProjectRow> {
 }
 
 test.beforeAll(async () => {
-  editor = new McpClient(await mintAccessToken(EDITOR_USER))
+  editor = new McpClient(await mintAccessToken(EDITOR_STORAGE_STATE))
   await editor.connect()
-  viewer = new McpClient(await mintAccessToken(VIEWER_USER))
+  viewer = new McpClient(await mintAccessToken(VIEWER_STORAGE_STATE))
   await viewer.connect()
 
   // Fail loudly and once if the stack predates the tools, rather than leaving

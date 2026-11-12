@@ -20,7 +20,7 @@
 // carries the e2e hook. Both are checked, loudly, before any assertion runs.
 import { expect, test } from '@playwright/test'
 import type { Browser, Page } from '@playwright/test'
-import { EDITOR_USER, IDS, ORIGIN, VIEWER_USER } from './fixtures'
+import { IDS, ORIGIN } from './fixtures'
 import { McpClient } from './mcp-client'
 import type { McpErrorPayload } from './mcp-client'
 import { mintAccessToken } from './oauth'
@@ -30,7 +30,7 @@ import {
   resetCanvasBoards,
   seedConnectorEndpointState,
 } from './stack'
-import { EDITOR_STORAGE_STATE } from './global-setup'
+import { EDITOR_STORAGE_STATE, VIEWER_STORAGE_STATE } from './global-setup'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types mirroring what the tools return. Narrow on purpose — asserting the
@@ -88,17 +88,17 @@ declare global {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared clients. Minting a bearer drives a full browser login, so it happens
-// once per role rather than once per test.
+// Shared clients, one per role. Each bearer is minted from the session global
+// setup saved for that role (e2e/oauth.ts), so no test logs in again.
 // ─────────────────────────────────────────────────────────────────────────────
 
 let editor: McpClient
 let viewer: McpClient
 
 test.beforeAll(async () => {
-  editor = new McpClient(await mintAccessToken(EDITOR_USER))
+  editor = new McpClient(await mintAccessToken(EDITOR_STORAGE_STATE))
   await editor.connect()
-  viewer = new McpClient(await mintAccessToken(VIEWER_USER))
+  viewer = new McpClient(await mintAccessToken(VIEWER_STORAGE_STATE))
   await viewer.connect()
 })
 

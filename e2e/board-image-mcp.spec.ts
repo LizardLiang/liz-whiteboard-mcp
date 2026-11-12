@@ -16,7 +16,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { EDITOR_USER, RENDER_IDS, VIEWER_USER } from './fixtures'
+import { RENDER_IDS } from './fixtures'
+import { EDITOR_STORAGE_STATE, VIEWER_STORAGE_STATE } from './global-setup'
 import { McpClient } from './mcp-client'
 import type { ContentBlock } from './mcp-client'
 import { mintAccessToken } from './oauth'
@@ -31,9 +32,9 @@ let viewer: McpClient
 
 test.beforeAll(async () => {
   runAppSeed('seed-render.ts')
-  editor = new McpClient(await mintAccessToken(EDITOR_USER))
+  editor = new McpClient(await mintAccessToken(EDITOR_STORAGE_STATE))
   await editor.connect()
-  viewer = new McpClient(await mintAccessToken(VIEWER_USER))
+  viewer = new McpClient(await mintAccessToken(VIEWER_STORAGE_STATE))
   await viewer.connect()
 })
 
