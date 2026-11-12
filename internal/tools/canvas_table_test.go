@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -21,8 +22,35 @@ import (
 // estimateRowHeight
 // ---------------------------------------------------------------------------
 
+// browserHeight is what the app's exact fit gives for n lines at 14 px.
+func browserHeight(lines int) float64 { return math.Ceil(float64(lines)*14*1.4 + 16) }
+
+// Each row was measured in the browser (120 px column, 14 px font). The estimate
+// must never be below it, or the text spills out of its row.
+func TestEstimateRowHeight_NeverBelowTheBrowser(t *testing.T) {
+	cases := []struct {
+		name         string
+		text         string
+		browserLines int
+		maxLines     int
+	}{
+		{"e2e long string", strings.Repeat("a long sentence that has to wrap over several lines inside one cell ", 2), 12, 13},
+		{"long word text", "Revenue growth by quarter for the internationalization programme", 7, 9},
+		{"wide Latin glyphs", "WWWW MMMM WWWW MMMM WWWW MMMM WWWW MMMM", 8, 10},
+		{"CJK", "這是一段很長的中文文字，需要在儲存格裡換行好幾次才能完整顯示出來。", 5, 5},
+		{"short sentence", "a long sentence that has to wrap", 3, 4},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := estimateRowHeight(tc.text, 120, 14)
+			assert.GreaterOrEqual(t, got, browserHeight(tc.browserLines), "must not under-estimate")
+			assert.LessOrEqual(t, got, browserHeight(tc.maxLines), "must not be absurd")
+		})
+	}
+}
+
 func TestEstimateRowHeight(t *testing.T) {
-	// One short Latin line: ceil(1 * 14 * 1.4 + 16) = 36.
+	// One short line: ceil(1 * 14 * 1.4 + 16) = 36.
 	assert.Equal(t, 36.0, estimateRowHeight("hi", 120, 14))
 	// Empty text asks for no change.
 	assert.Equal(t, 0.0, estimateRowHeight("", 120, 14))
@@ -30,15 +58,17 @@ func TestEstimateRowHeight(t *testing.T) {
 	assert.Equal(t, 56.0, estimateRowHeight("a\nb", 120, 14))
 	// A trailing newline adds an empty paragraph, one more line.
 	assert.Equal(t, 56.0, estimateRowHeight("a\n", 120, 14))
-	// 104 inner px / 8.4 px per Latin char: 13 chars fit, 14 wrap.
-	assert.Equal(t, 36.0, estimateRowHeight(strings.Repeat("a", 12), 120, 14))
-	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("a", 13), 120, 14))
-	// CJK is 14 px per char: 7 fit in 104 px, 8 wrap. The same count of Latin fits.
+	// A word wider than the line breaks mid-word.
+	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("W", 12), 120, 14))
+	// CJK has no spaces, so it breaks per character: 7 fit in 104 px, 8 wrap.
 	assert.Equal(t, 36.0, estimateRowHeight(strings.Repeat("字", 7), 120, 14))
 	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("字", 8), 120, 14))
-	assert.Equal(t, 36.0, estimateRowHeight(strings.Repeat("a", 8), 120, 14))
 	// A column narrower than its padding never divides by zero or below.
 	assert.Greater(t, estimateRowHeight("abc", 10, 14), 36.0)
+	// Every printable ASCII glyph has a width.
+	for _, w := range asciiAdvanceEm {
+		assert.Greater(t, w, 0.0)
+	}
 }
 
 // ---------------------------------------------------------------------------

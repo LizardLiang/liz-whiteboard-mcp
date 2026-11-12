@@ -462,8 +462,10 @@ test.describe('canvas tables over MCP', () => {
     expect(grown.applied).toBe(1)
     const after = await storedTable(IDS.canvasBoard, id)
     const grownHeight = after.rows[0].height
-    // 140 chars * 8.4 px over a 104 px inner width: at least 2 lines of 19.6 px.
-    expect(grownHeight).toBeGreaterThanOrEqual(56)
+    // The browser's exact fit for this string in a 120 px column is 252 (12
+    // lines); the estimate must never be below it or the text spills.
+    expect(grownHeight).toBeGreaterThanOrEqual(252)
+    expect(grownHeight, 'not absurdly tall').toBeLessThanOrEqual(300)
     expect(after.rows[1].height).toBe(40)
 
     await editor.expectOk('edit_canvas_table', {

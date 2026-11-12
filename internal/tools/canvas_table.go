@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -51,10 +52,8 @@ const (
 	tableLineHeight = 1.4
 	// tableFontSize mirrors TABLE_DEFAULT_STYLE.fontSize (table.ts:60-65).
 	tableFontSize = 14.0
-	// tableLatinEm / tableWideEm are the estimated glyph widths in em. Latin text
-	// averages below 0.6 em; CJK, Hangul, kana and full-width forms are 1.0 em.
-	tableLatinEm = 0.6
-	tableWideEm  = 1.0
+	// tableWideEm is the glyph width in em of CJK, Hangul, kana and full-width forms.
+	tableWideEm = 1.0
 	// tableMaxChanges bounds one edit_canvas_table call.
 	tableMaxChanges = 200
 )
@@ -171,9 +170,85 @@ func isWideRune(r rune) bool {
 	return false
 }
 
+// asciiAdvanceEm holds the advance of each printable ASCII glyph (0x20 to 0x7E)
+// in em. The values are DejaVu Sans advances, the widest of the fonts the app's
+// FONT_FAMILY (render-target.ts:102) can resolve to (system-ui, Segoe UI,
+// Roboto, Noto Sans), so the table is an upper bound on every machine.
+var asciiAdvanceEm = [95]float64{
+	0.318, 0.401, 0.460, 0.838, 0.636, 0.950, 0.780, 0.275, 0.390, 0.390, // space ! " # $ % & ' ( )
+	0.500, 0.838, 0.318, 0.361, 0.318, 0.337, // * + , - . /
+	0.636, 0.636, 0.636, 0.636, 0.636, 0.636, 0.636, 0.636, 0.636, 0.636, // 0-9
+	0.337, 0.337, 0.838, 0.838, 0.838, 0.531, 1.000, // : ; < = > ? @
+	0.684, 0.686, 0.698, 0.770, 0.632, 0.575, 0.775, 0.752, 0.295, 0.295, // A-J
+	0.656, 0.557, 0.863, 0.748, 0.787, 0.603, 0.787, 0.695, 0.635, 0.611, // K-T
+	0.732, 0.684, 0.989, 0.685, 0.611, 0.685, // U-Z
+	0.390, 0.337, 0.390, 0.838, 0.500, 0.500, // [ \ ] ^ _ `
+	0.613, 0.635, 0.550, 0.635, 0.615, 0.352, 0.635, 0.634, 0.278, 0.278, // a-j
+	0.579, 0.278, 0.974, 0.634, 0.612, 0.635, 0.635, 0.411, 0.521, 0.392, // k-t
+	0.634, 0.592, 0.818, 0.592, 0.592, 0.525, // u-z
+	0.636, 0.337, 0.636, 0.838, // { | } ~
+}
+
+// otherAdvanceEm is the width of a non-ASCII glyph that is not wide: accented
+// Latin, Cyrillic, Greek and symbols. Conservative, above the common advance.
+const otherAdvanceEm = 0.8
+
+// glyphWidth is the estimated advance of one rune at fontSize.
+func glyphWidth(r rune, fontSize float64) float64 {
+	switch {
+	case r >= 0x20 && r <= 0x7E:
+		return asciiAdvanceEm[r-0x20] * fontSize
+	case isWideRune(r):
+		return tableWideEm * fontSize
+	}
+	return otherAdvanceEm * fontSize
+}
+
+// wrapLineCount counts the lines one newline-free paragraph wraps to. It ports
+// wrapParagraph (text-layout.ts:397) exactly: greedy, break at the last space on
+// the line, else mid-word; a space it breaks on is consumed. A script with no
+// spaces (CJK) therefore breaks per character.
+func wrapLineCount(paragraph []rune, maxWidth, fontSize float64) int {
+	if len(paragraph) == 0 {
+		return 1
+	}
+	// prefix[i] is the width of paragraph[:i], so widthOf(a, b) is O(1).
+	prefix := make([]float64, len(paragraph)+1)
+	for i, r := range paragraph {
+		prefix[i+1] = prefix[i] + glyphWidth(r, fontSize)
+	}
+	widthOf := func(from, to int) float64 { return prefix[to] - prefix[from] }
+	if maxWidth <= 0 || widthOf(0, len(paragraph)) <= maxWidth {
+		return 1
+	}
+	lines := 0
+	lineStart, lastBreak := 0, -1
+	for i := 0; i < len(paragraph); {
+		if widthOf(lineStart, i+1) > maxWidth && i > lineStart {
+			lines++
+			if lastBreak > lineStart {
+				lineStart = lastBreak + 1
+			} else {
+				lineStart = i
+			}
+			lastBreak = -1
+			i = lineStart
+			continue
+		}
+		if paragraph[i] == ' ' {
+			lastBreak = i
+		}
+		i++
+	}
+	if lineStart < len(paragraph) {
+		lines++
+	}
+	return lines
+}
+
 // estimateRowHeight estimates the row height a cell's text needs in a column
-// colWidth wide, at fontSize. It splits on newlines, sums the glyph widths of
-// each paragraph, wraps at the cell's inner width, and rounds up.
+// colWidth wide, at fontSize: it wraps each newline-separated paragraph with the
+// app's own greedy rule over upper-bound glyph widths, and rounds up.
 // Empty text returns 0: it asks for no change.
 func estimateRowHeight(text string, colWidth, fontSize float64) float64 {
 	if text == "" {
@@ -184,28 +259,8 @@ func estimateRowHeight(text string, colWidth, fontSize float64) float64 {
 		inner = 1
 	}
 	lines := 0
-	start := 0
-	paragraphs := make([]string, 0, 4)
-	for i := 0; i <= len(text); i++ {
-		if i == len(text) || text[i] == '\n' {
-			paragraphs = append(paragraphs, text[start:i])
-			start = i + 1
-		}
-	}
-	for _, p := range paragraphs {
-		width := 0.0
-		for _, r := range p {
-			if isWideRune(r) {
-				width += tableWideEm * fontSize
-			} else {
-				width += tableLatinEm * fontSize
-			}
-		}
-		n := int(math.Ceil(width / inner))
-		if n < 1 {
-			n = 1
-		}
-		lines += n
+	for _, p := range strings.Split(text, "\n") {
+		lines += wrapLineCount([]rune(p), inner, fontSize)
 	}
 	return math.Ceil(float64(lines)*fontSize*tableLineHeight + 2*tableTextPadding)
 }
