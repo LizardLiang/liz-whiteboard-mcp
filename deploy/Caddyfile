@@ -9,6 +9,11 @@
 	servers {
 		trusted_proxies static private_ranges
 	}
+	# INFO is Caddy's default. The e2e compose override sets
+	# CADDY_LOG_LEVEL=DEBUG to log every upstream round trip.
+	log {
+		level {$CADDY_LOG_LEVEL:INFO}
+	}
 }
 
 :8080 {

@@ -1,6 +1,6 @@
 # E2E verification override for the canvas MCP suite (e2e/canvas-mcp.spec.ts).
 #
-# Three deviations from docker-compose.yml, all required, all explained:
+# Four deviations from docker-compose.yml, all explained:
 #
 # 1. PROXY PORT. Host port 8080 is unbindable in this WSL2 environment (Docker
 #    Desktop answers "/forwards/expose returned 500"), so the published port
@@ -23,6 +23,11 @@
 #    image, but e2e/stack.ts runs the app's seed scripts inside the app
 #    container (`bun run e2e/seed.ts`). The app's e2e/ folder is mounted
 #    read-only so the seeds exist without shipping them in the production image.
+#
+# 4. CADDY DEBUG LOGS. deploy/Caddyfile reads its log level from
+#    CADDY_LOG_LEVEL (default INFO). The e2e proxy sets DEBUG, so Caddy logs
+#    every upstream round trip and a failed request on the Caddy→MCP hop names
+#    its cause in `docker logs lizverify-proxy-1`. Production keeps INFO.
 #
 # Bring the e2e stack up (from this directory):
 #   PUBLIC_ORIGIN=http://localhost:18080 \
@@ -48,5 +53,7 @@ services:
     shm_size: 1gb
 
   proxy:
+    environment:
+      CADDY_LOG_LEVEL: DEBUG
     ports: !override
       - "127.0.0.1:18080:8080"
