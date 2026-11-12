@@ -352,8 +352,8 @@ func NewJWKSVerifier(issuer, audience, jwksURL string) sdkauth.TokenVerifier {
 		}
 
 		return &sdkauth.TokenInfo{
-			UserID:     sub,
-			Scopes:     scopes,
+			UserID: sub,
+			Scopes: scopes,
 			// The go-sdk's RequireBearerToken rejects a token once Expiration is
 			// past, with no leeway of its own. Adding expiryLeeway here makes
 			// the RFC 7519 §4.1.4 leeway real end to end.
