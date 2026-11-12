@@ -54,11 +54,15 @@ export class McpClient {
   }
 
   private async post(body: unknown): Promise<Response> {
-    return fetch(MCP_URL, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    })
+    try {
+      return await fetch(MCP_URL, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+      })
+    } catch (error) {
+      throw transportFailure(`POST ${MCP_URL}`, body, error)
+    }
   }
 
   /** Decode a JSON-RPC response that may arrive as JSON or as one SSE event. */
@@ -82,7 +86,17 @@ export class McpClient {
     const response = await this.post({ jsonrpc: '2.0', id, method, params })
     const returnedSession = response.headers.get('mcp-session-id')
     if (returnedSession) this.sessionId = returnedSession
-    const text = await response.text()
+    let text: string
+    try {
+      text = await response.text()
+    } catch (error) {
+      // An SSE response can abort after its headers arrived.
+      throw transportFailure(
+        `read body of HTTP ${response.status} from ${MCP_URL}`,
+        { method, id },
+        error,
+      )
+    }
     if (!response.ok) {
       throw new Error(
         `MCP ${method} → HTTP ${response.status}: ${text.slice(0, 500) || '<empty body>'}`,
@@ -160,6 +174,60 @@ export class McpClient {
     }
     return result.data
   }
+}
+
+/**
+ * Describe a failed request with its whole error chain and log it.
+ *
+ * Node's fetch (undici) throws `TypeError: fetch failed` and puts the real
+ * reason in `cause`, often several levels down. A socket-level cause (e.g.
+ * "other side closed") carries a `socket` record with the byte counts, which
+ * tell a connection the peer closed before any request byte arrived apart
+ * from one closed mid-response.
+ */
+function transportFailure(
+  what: string,
+  request: unknown,
+  error: unknown,
+): Error {
+  const lines = [`MCP transport failure: ${what}`]
+  const rpc = request as { method?: unknown; id?: unknown } | null
+  if (rpc && typeof rpc === 'object') {
+    lines.push(`  rpc: method=${String(rpc.method)} id=${String(rpc.id)}`)
+  }
+  let current: unknown = error
+  for (let depth = 0; current !== undefined && current !== null; depth++) {
+    const indent = '  '.repeat(depth + 1)
+    if (depth > 8) {
+      lines.push(`${indent}<cause chain truncated>`)
+      break
+    }
+    if (!(current instanceof Error)) {
+      lines.push(`${indent}${depth === 0 ? 'error' : 'cause'}: ${String(current)}`)
+      break
+    }
+    const detail = current as Error & {
+      code?: unknown
+      errno?: unknown
+      syscall?: unknown
+      socket?: Record<string, unknown>
+    }
+    const code = detail.code === undefined ? '' : ` code=${String(detail.code)}`
+    const errno = detail.errno === undefined ? '' : ` errno=${String(detail.errno)}`
+    const syscall =
+      detail.syscall === undefined ? '' : ` syscall=${String(detail.syscall)}`
+    lines.push(
+      `${indent}${depth === 0 ? 'error' : 'cause'}: ${detail.name}: ${detail.message}${code}${errno}${syscall}`,
+    )
+    if (detail.socket && typeof detail.socket === 'object') {
+      lines.push(`${indent}  socket: ${JSON.stringify(detail.socket)}`)
+    }
+    current = detail.cause
+  }
+  lines.push(`  at: ${new Date().toISOString()}`)
+  const message = lines.join('\n')
+  console.error(message)
+  return new Error(message, { cause: error })
 }
 
 /** One MCP content block as it arrives on the wire. */
