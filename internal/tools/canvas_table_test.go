@@ -5,7 +5,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -42,7 +45,7 @@ func TestEstimateRowHeight_NeverBelowTheBrowser(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := estimateRowHeight(tc.text, 120, 14)
+			got := estimateRowHeight(tc.text, 120, 14, false)
 			assert.GreaterOrEqual(t, got, browserHeight(tc.browserLines), "must not under-estimate")
 			assert.LessOrEqual(t, got, browserHeight(tc.maxLines), "must not be absurd")
 		})
@@ -51,22 +54,22 @@ func TestEstimateRowHeight_NeverBelowTheBrowser(t *testing.T) {
 
 func TestEstimateRowHeight(t *testing.T) {
 	// One short line: ceil(1 * 14 * 1.4 + 16) = 36.
-	assert.Equal(t, 36.0, estimateRowHeight("hi", 120, 14))
+	assert.Equal(t, 36.0, estimateRowHeight("hi", 120, 14, false))
 	// Empty text asks for no change.
-	assert.Equal(t, 0.0, estimateRowHeight("", 120, 14))
+	assert.Equal(t, 0.0, estimateRowHeight("", 120, 14, false))
 	// Two paragraphs are two lines: ceil(2*19.6+16) = 56.
-	assert.Equal(t, 56.0, estimateRowHeight("a\nb", 120, 14))
+	assert.Equal(t, 56.0, estimateRowHeight("a\nb", 120, 14, false))
 	// A trailing newline adds an empty paragraph, one more line.
-	assert.Equal(t, 56.0, estimateRowHeight("a\n", 120, 14))
+	assert.Equal(t, 56.0, estimateRowHeight("a\n", 120, 14, false))
 	// A word wider than the line breaks mid-word.
-	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("W", 12), 120, 14))
+	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("W", 12), 120, 14, false))
 	// CJK has no spaces, so it breaks per character: 7 fit in 104 px, 8 wrap.
-	assert.Equal(t, 36.0, estimateRowHeight(strings.Repeat("字", 7), 120, 14))
-	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("字", 8), 120, 14))
+	assert.Equal(t, 36.0, estimateRowHeight(strings.Repeat("字", 7), 120, 14, false))
+	assert.Equal(t, 56.0, estimateRowHeight(strings.Repeat("字", 8), 120, 14, false))
 	// A column narrower than its padding never divides by zero or below.
-	assert.Greater(t, estimateRowHeight("abc", 10, 14), 36.0)
+	assert.Greater(t, estimateRowHeight("abc", 10, 14, false), 36.0)
 	// Every printable ASCII glyph has a width.
-	for _, w := range asciiAdvanceEm {
+	for _, w := range regularAdvanceEm {
 		assert.Greater(t, w, 0.0)
 	}
 }
@@ -162,7 +165,7 @@ func TestBuildCanvasTablePayload_Refusals(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type fakeTableEnv struct {
-	table    canvasTable
+	table    data.CanvasTable
 	kind     string
 	boardID  string
 	emitted  []map[string]any
@@ -170,13 +173,31 @@ type fakeTableEnv struct {
 	ackFor   func(n int, payload map[string]any) socket.AckResult
 	authed   int
 	authFail error
+	// errFor simulates a transport error on the nth emit; applied says whether
+	// the server applied the op anyway (a lost ack).
+	errFor func(n int) (err error, applied bool)
+	// loadFail simulates a database error on the nth element read.
+	loadFail func(call int) error
+	loads    int
+	// style is the stored element style JSON; missing makes the element read return nil.
+	style   string
+	missing bool
+	// skipHeight makes the fake ignore a rowHeight write, as the app does when ifRowHeight no longer matches.
+	skipHeight bool
+}
+
+func (f *fakeTableEnv) styleJSON() string {
+	if f.style != "" {
+		return f.style
+	}
+	return `{"fontSize":14}`
 }
 
 func (f *fakeTableEnv) element() *data.CanvasElement {
 	props, _ := json.Marshal(map[string]any{"kind": "table", "table": f.table})
 	return &data.CanvasElement{
 		ID: canvasTestElementID, BoardID: f.boardID, Kind: f.kind,
-		Props: props, Style: data.JSONText(`{"fontSize":14}`),
+		Props: props, Style: data.JSONText(f.styleJSON()),
 	}
 }
 
@@ -186,10 +207,29 @@ func (f *fakeTableEnv) fns() canvasTableFns {
 			f.authed++
 			return "user-1", f.authFail
 		},
-		loadElement: func(context.Context, string) (*data.CanvasElement, error) { return f.element(), nil },
+		loadElement: func(context.Context, string) (*data.CanvasElement, error) {
+			f.loads++
+			if f.loadFail != nil {
+				if err := f.loadFail(f.loads); err != nil {
+					return nil, err
+				}
+			}
+			if f.missing {
+				return nil, nil
+			}
+			return f.element(), nil
+		},
 		emit: func(_ context.Context, _, _, event string, payload map[string]any) (socket.AckResult, error) {
 			f.emitted = append(f.emitted, payload)
 			f.events = append(f.events, event)
+			if f.errFor != nil {
+				if err, applied := f.errFor(len(f.emitted)); err != nil {
+					if applied {
+						f.apply(payload)
+					}
+					return nil, err
+				}
+			}
 			ack := socket.AckResult{"ok": true, "entity": map[string]any{"id": "x"}}
 			if f.ackFor != nil {
 				ack = f.ackFor(len(f.emitted), payload)
@@ -209,6 +249,37 @@ func (f *fakeTableEnv) apply(payload map[string]any) {
 		return
 	}
 	switch op["type"] {
+	case "setCellText":
+		key := op["rowId"].(string) + ":" + op["colId"].(string)
+		cell := f.table.Cells[key]
+		cell.Text = op["text"].(string)
+		f.table.Cells[key] = cell
+		if h, ok := op["rowHeight"].(float64); ok {
+			for i, r := range f.table.Rows {
+				if r.ID == op["rowId"] && r.Height == op["ifRowHeight"] && !f.skipHeight {
+					f.table.Rows[i].Height = h
+				}
+			}
+		}
+	case "setHeaderRow":
+		f.table.HeaderRow = op["on"].(bool)
+	case "insertCol":
+		col := op["col"].(map[string]any)
+		f.table.Cols = append(f.table.Cols, data.TableCol{ID: col["id"].(string), Width: 120})
+	case "removeCol":
+		for i, c := range f.table.Cols {
+			if c.ID == op["colId"] {
+				f.table.Cols = append(f.table.Cols[:i], f.table.Cols[i+1:]...)
+				break
+			}
+		}
+	case "setCellFill":
+		for _, ref := range op["cells"].([]map[string]any) {
+			key := ref["rowId"].(string) + ":" + ref["colId"].(string)
+			cell := f.table.Cells[key]
+			cell.Fill, _ = op["fill"].(string)
+			f.table.Cells[key] = cell
+		}
 	case "insertRow":
 		row := op["row"].(map[string]any)
 		at := 0
@@ -219,7 +290,7 @@ func (f *fakeTableEnv) apply(payload map[string]any) {
 				}
 			}
 		}
-		f.table.Rows = append(f.table.Rows[:at], append([]tableRow{{ID: row["id"].(string), Height: 40}}, f.table.Rows[at:]...)...)
+		f.table.Rows = append(f.table.Rows[:at], append([]data.TableRow{{ID: row["id"].(string), Height: 40}}, f.table.Rows[at:]...)...)
 	case "removeRow":
 		for i, r := range f.table.Rows {
 			if r.ID == op["rowId"] {
@@ -232,14 +303,22 @@ func (f *fakeTableEnv) apply(payload map[string]any) {
 
 func newFakeTable(rows, cols int) *fakeTableEnv {
 	f := &fakeTableEnv{kind: "table", boardID: canvasTestBoardID}
-	f.table = canvasTable{Cells: map[string]tableCell{}, HeaderRow: true}
+	f.table = data.CanvasTable{Cells: map[string]data.TableCell{}, HeaderRow: true}
 	for i := 0; i < rows; i++ {
-		f.table.Rows = append(f.table.Rows, tableRow{ID: "r" + string(rune('0'+i)), Height: 40})
+		f.table.Rows = append(f.table.Rows, data.TableRow{ID: "r" + string(rune('0'+i)), Height: 40})
 	}
 	for i := 0; i < cols; i++ {
-		f.table.Cols = append(f.table.Cols, tableCol{ID: "c" + string(rune('0'+i)), Width: 120})
+		f.table.Cols = append(f.table.Cols, data.TableCol{ID: "c" + string(rune('0'+i)), Width: 120})
 	}
 	return f
+}
+
+// chg decodes a change from JSON, as the SDK does, so key presence is recorded.
+func chg(t *testing.T, raw string) tableChangeInput {
+	t.Helper()
+	var c tableChangeInput
+	require.NoError(t, json.Unmarshal([]byte(raw), &c))
+	return c
 }
 
 func ip(i int) *int { return &i }
@@ -354,7 +433,7 @@ func TestEditCanvasTable_OpMapping(t *testing.T) {
 		tableChangeInput{Type: "resizeColumn", Column: ip(1), Width: f64Ptr(200)},
 		tableChangeInput{Type: "setHeaderRow", On: bp(false)},
 		tableChangeInput{Type: "setFill", FromRow: ip(0), ToRow: ip(1), FromColumn: ip(0), ToColumn: ip(1), Fill: sp("#ff0000")},
-		tableChangeInput{Type: "setFill", FromRow: ip(0), ToRow: ip(0), FromColumn: ip(0), ToColumn: ip(0)},
+		chg(t, `{"type":"setFill","fromRow":0,"toRow":0,"fromColumn":0,"toColumn":0,"fill":null}`),
 		tableChangeInput{Type: "setAlign", FromRow: ip(0), ToRow: ip(0), FromColumn: ip(0), ToColumn: ip(0), Align: sp("center")},
 	))
 	require.False(t, isErr, text)
@@ -368,14 +447,14 @@ func TestEditCanvasTable_OpMapping(t *testing.T) {
 	assert.Equal(t, "c2", op["colId"])
 	assert.Equal(t, "removeCol", opOf(t, f, 1)["type"])
 	assert.Equal(t, map[string]any{"type": "resizeRow", "rowId": "r2", "height": 80.0}, opOf(t, f, 2))
-	assert.Equal(t, map[string]any{"type": "resizeCol", "colId": "c1", "width": 200.0}, opOf(t, f, 3))
+	assert.Equal(t, map[string]any{"type": "resizeCol", "colId": "c2", "width": 200.0}, opOf(t, f, 3)) // c0 was removed: column 1 is now c2
 	assert.Equal(t, map[string]any{"type": "setHeaderRow", "on": false}, opOf(t, f, 4))
 	fill := opOf(t, f, 5)
 	assert.Equal(t, "setCellFill", fill["type"])
 	assert.Equal(t, "#ff0000", fill["fill"])
 	assert.Len(t, fill["cells"], 4)
 	cleared := opOf(t, f, 6)
-	assert.Nil(t, cleared["fill"], "an absent fill clears")
+	assert.Nil(t, cleared["fill"], "an explicit null fill clears")
 	_, hasFill := cleared["fill"]
 	assert.True(t, hasFill, "the key is sent as null")
 	assert.Equal(t, "center", opOf(t, f, 7)["align"])
@@ -419,9 +498,7 @@ func TestEditCanvasTable_SetTextGrowsRowsOnly(t *testing.T) {
 	_, hasH := short["rowHeight"]
 	_, hasIf := short["ifRowHeight"]
 	assert.False(t, hasH || hasIf, "a text that fits sends no height")
-	empty := opOf(t, f, 2)
-	_, hasH = empty["rowHeight"]
-	assert.False(t, hasH, "clearing a cell never shrinks its row")
+	assert.Len(t, f.emitted, 2, "clearing an already empty cell is a no-op and emits nothing")
 }
 
 // ---------------------------------------------------------------------------
@@ -528,4 +605,295 @@ func TestCreateCanvasTable_EmitsElementCreateAndReturnsIDs(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(textOf(res)), &out))
 	assert.Len(t, out.RowIDs, 3)
 	assert.Len(t, out.ColumnIDs, 3)
+}
+
+// ---------------------------------------------------------------------------
+// estimate: one test per branch of the app's layout
+// ---------------------------------------------------------------------------
+
+// "Total revenue" is 97.15 px regular and 109.43 px bold in a 104 px text area:
+// the header row is drawn bold, so it wraps where a body cell does not.
+func TestEstimateRowHeight_BoldHeaderWraps(t *testing.T) {
+	assert.Equal(t, browserHeight(1), estimateRowHeight("Total revenue", 120, 14, false))
+	assert.GreaterOrEqual(t, estimateRowHeight("Total revenue", 120, 14, true), browserHeight(2))
+}
+
+func TestEstimateRowHeight_TodoMarker(t *testing.T) {
+	// Measured in the browser: 4 lines in a 120 px column.
+	got := estimateRowHeight("☐ Review the quarterly figures", 120, 14, false)
+	assert.GreaterOrEqual(t, got, browserHeight(4))
+	assert.LessOrEqual(t, got, browserHeight(6))
+	assert.Greater(t, got, estimateRowHeight("x Review the quarterly figures", 120, 14, false)-1,
+		"the hanging indent never makes a todo shorter than plain text")
+}
+
+func TestEstimateRowHeight_NonASCIIPunctuationAndCyrillic(t *testing.T) {
+	// An em dash and an ellipsis reach 1.34 em, so this wraps in 104 px.
+	assert.GreaterOrEqual(t, estimateRowHeight("Q1 — Q2 — Q3", 120, 14, false), browserHeight(2))
+	assert.GreaterOrEqual(t, estimateRowHeight("ЖЖЖЖЖЖЖЖ", 120, 14, true), browserHeight(2))
+	assert.GreaterOrEqual(t, estimateRowHeight("12‰ 12‰ 12‰ 12‰", 120, 14, false), browserHeight(2))
+	// Bopomofo and symbols count as wide: 8 per 104 px line is too many.
+	assert.GreaterOrEqual(t, estimateRowHeight("ㄅㄆㄇㄈㄉㄊㄋㄌ", 120, 14, false), browserHeight(2))
+}
+
+func TestEstimateRowHeight_BoldIsNeverNarrower(t *testing.T) {
+	for i, reg := range regularAdvanceEm {
+		assert.GreaterOrEqual(t, boldAdvanceEm[i], reg, "glyph %q", rune(0x20+i))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// bold in create and edit
+// ---------------------------------------------------------------------------
+
+func TestBuildCanvasTablePayload_HeaderCellIsMeasuredBold(t *testing.T) {
+	in := validCreateTable()
+	in.Cells = [][]string{{"Total revenue"}, {"Total revenue"}}
+	payload, _, _, e := buildCanvasTablePayload(in)
+	require.Nil(t, e)
+	rows := payload["props"].(map[string]any)["table"].(map[string]any)["rows"].([]map[string]any)
+	assert.GreaterOrEqual(t, rows[0]["height"].(float64), browserHeight(2), "header row: bold wraps")
+	assert.Equal(t, 40.0, rows[1]["height"], "body row: regular fits one line")
+
+	off := false
+	in.HeaderRow = &off
+	payload, _, _, _ = buildCanvasTablePayload(in)
+	rows = payload["props"].(map[string]any)["table"].(map[string]any)["rows"].([]map[string]any)
+	assert.Equal(t, 40.0, rows[0]["height"], "no header row: nothing is bold")
+}
+
+func TestEditCanvasTable_HeaderRowAndBoldStyleDecideTheWeight(t *testing.T) {
+	f := newFakeTable(2, 1) // headerRow true
+	_, _ = runEdit(t, f, editOf(
+		tableChangeInput{Type: "setText", Row: ip(0), Column: ip(0), Text: sp("Total revenue")},
+		tableChangeInput{Type: "setText", Row: ip(1), Column: ip(0), Text: sp("Total revenue")},
+	))
+	assert.Contains(t, opOf(t, f, 0), "rowHeight")
+	assert.NotContains(t, opOf(t, f, 1), "rowHeight")
+
+	f = newFakeTable(2, 1)
+	f.style = `{"fontSize":14,"fontWeight":"bold"}`
+	_, _ = runEdit(t, f, editOf(tableChangeInput{Type: "setText", Row: ip(1), Column: ip(0), Text: sp("Total revenue")}))
+	assert.Contains(t, opOf(t, f, 0), "rowHeight", "a table styled bold is bold throughout")
+}
+
+// ---------------------------------------------------------------------------
+// edit: change validation
+// ---------------------------------------------------------------------------
+
+func TestEditCanvasTable_SetFillNeedsAnExplicitFill(t *testing.T) {
+	rng := `"fromRow":0,"toRow":0,"fromColumn":0,"toColumn":0`
+	e := checkTableChangeShape(0, chg(t, `{"type":"setFill",`+rng+`}`))
+	require.NotNil(t, e, "a missing fill must not silently clear")
+	assert.Equal(t, "changes[0].fill", e.Field)
+	assert.Nil(t, checkTableChangeShape(0, chg(t, `{"type":"setFill",`+rng+`,"fill":null}`)))
+	assert.Nil(t, checkTableChangeShape(0, chg(t, `{"type":"setFill",`+rng+`,"fill":""}`)))
+
+	f := newFakeTable(1, 1)
+	_, _ = runEdit(t, f, editOf(chg(t, `{"type":"setFill",`+rng+`,"fill":""}`)))
+	assert.Nil(t, opOf(t, f, 0)["fill"], "an empty string clears")
+}
+
+func TestEditCanvasTable_RefusesAFieldForeignToItsType(t *testing.T) {
+	cases := map[string]string{
+		`{"type":"resizeRow","row":0,"height":30,"width":50}`: "changes[1].width",
+		`{"type":"removeRow","row":0,"text":"x"}`:             "changes[1].text",
+		`{"type":"setHeaderRow","on":true,"row":0}`:           "changes[1].row",
+	}
+	for raw, field := range cases {
+		e := checkEditCanvasTableShape(editOf(
+			tableChangeInput{Type: "setHeaderRow", On: bp(true)}, chg(t, raw)))
+		require.NotNil(t, e, raw)
+		assert.Equal(t, field, e.Field)
+	}
+}
+
+func TestEditCanvasTable_UnhandledTypeIsInternal(t *testing.T) {
+	_, e := buildTableOp(0, tableChangeInput{Type: "bogus"}, &storedTable{Table: &data.CanvasTable{}})
+	require.NotNil(t, e)
+	assert.Equal(t, mcperr.InternalError, e.Code)
+}
+
+func TestEditCanvasTable_SetTextEqualToStoredIsANoOp(t *testing.T) {
+	f := newFakeTable(1, 1)
+	f.table.Cells["r0:c0"] = data.TableCell{Text: "same"}
+	_, text := runEdit(t, f, editOf(tableChangeInput{Type: "setText", Row: ip(0), Column: ip(0), Text: sp("same")}))
+	assert.Empty(t, f.emitted)
+	assert.Equal(t, 1, decodeResult(t, nil, text).Applied)
+}
+
+func TestEditCanvasTable_ReportsASkippedRowHeight(t *testing.T) {
+	f := newFakeTable(1, 1)
+	f.skipHeight = true // the app ignores the height: ifRowHeight no longer matches
+	long := strings.Repeat("word ", 30)
+	_, text := runEdit(t, f, editOf(tableChangeInput{Type: "setText", Row: ip(0), Column: ip(0), Text: &long}))
+	res := decodeResult(t, nil, text)
+	assert.Equal(t, 1, res.Applied)
+	assert.Equal(t, []int{0}, res.RowHeightSkipped)
+
+	f = newFakeTable(1, 1)
+	_, text = runEdit(t, f, editOf(tableChangeInput{Type: "setText", Row: ip(0), Column: ip(0), Text: &long}))
+	assert.Empty(t, decodeResult(t, nil, text).RowHeightSkipped)
+}
+
+// ---------------------------------------------------------------------------
+// edit: transport and database errors mid-list
+// ---------------------------------------------------------------------------
+
+func TestEditCanvasTable_LostAckThatLanded_CountsAsApplied(t *testing.T) {
+	f := newFakeTable(2, 1)
+	f.errFor = func(n int) (error, bool) {
+		if n == 2 {
+			return mcperr.New(mcperr.ConnectionError, "ack timeout"), true // applied anyway
+		}
+		return nil, false
+	}
+	isErr, text := runEdit(t, f, editOf(
+		tableChangeInput{Type: "setHeaderRow", On: bp(false)},
+		tableChangeInput{Type: "insertRow", At: ip(2)},
+		tableChangeInput{Type: "setHeaderRow", On: bp(true)},
+	))
+	require.False(t, isErr, text)
+	res := decodeResult(t, nil, text)
+	assert.Equal(t, 3, res.Applied, "the insert is found on re-read, so it is not reported as refused")
+	assert.Nil(t, res.Failed)
+	assert.Equal(t, 3, res.Rows)
+}
+
+func TestEditCanvasTable_LostAckThatDidNotLand_IsAnUnknownOutcome(t *testing.T) {
+	f := newFakeTable(2, 2)
+	f.errFor = func(n int) (error, bool) {
+		if n == 2 {
+			return mcperr.New(mcperr.ConnectionError, "ack timeout"), false
+		}
+		return nil, false
+	}
+	_, text := runEdit(t, f, editOf(
+		tableChangeInput{Type: "setHeaderRow", On: bp(false)},
+		tableChangeInput{Type: "insertColumn", At: ip(0)},
+		tableChangeInput{Type: "setHeaderRow", On: bp(true)},
+	))
+	res := decodeResult(t, nil, text)
+	assert.Equal(t, 1, res.Applied)
+	require.NotNil(t, res.Failed)
+	assert.Equal(t, "CONNECTION_ERROR", res.Failed.Code)
+	assert.Contains(t, res.Failed.Message, "Outcome unknown")
+	assert.Contains(t, res.Failed.Message, "before retrying")
+	assert.Equal(t, 1, res.Skipped)
+	assert.Equal(t, 2, res.Columns, "the counts come from the re-read")
+}
+
+func TestEditCanvasTable_AnEmitErrorIsMaskedWhenItIsNotAnMcpError(t *testing.T) {
+	f := newFakeTable(1, 1)
+	f.errFor = func(n int) (error, bool) {
+		if n == 2 {
+			return errors.New("dial tcp 10.0.0.7:3000: secret-host refused"), false
+		}
+		return nil, false
+	}
+	_, text := runEdit(t, f, editOf(
+		tableChangeInput{Type: "setHeaderRow", On: bp(false)},
+		tableChangeInput{Type: "setHeaderRow", On: bp(true)},
+	))
+	assert.NotContains(t, text, "secret-host")
+	assert.Contains(t, text, "Outcome unknown")
+}
+
+func TestEditCanvasTable_DatabaseErrorMidListIsMasked(t *testing.T) {
+	f := newFakeTable(1, 1)
+	f.loadFail = func(call int) error {
+		if call == 2 {
+			return errors.New("pq: password authentication failed for user liz")
+		}
+		return nil
+	}
+	isErr, text := runEdit(t, f, editOf(
+		tableChangeInput{Type: "setHeaderRow", On: bp(false)},
+		tableChangeInput{Type: "setHeaderRow", On: bp(true)},
+	))
+	require.False(t, isErr)
+	res := decodeResult(t, nil, text)
+	require.NotNil(t, res.Failed)
+	assert.Equal(t, "INTERNAL_ERROR", res.Failed.Code)
+	assert.Equal(t, "An internal error occurred.", res.Failed.Message)
+	assert.NotContains(t, text, "password")
+
+	f = newFakeTable(1, 1)
+	f.loadFail = func(int) error { return errors.New("pq: boom") }
+	isErr, text = runEdit(t, f, editOf(tableChangeInput{Type: "setHeaderRow", On: bp(false)}))
+	assert.True(t, isErr)
+	assert.NotContains(t, text, "boom")
+}
+
+func TestCodeMsg(t *testing.T) {
+	code, msg := codeMsg(mcperr.New(mcperr.NotFound, "gone"), mcperr.InternalError)
+	assert.Equal(t, mcperr.NotFound, code)
+	assert.Equal(t, "gone", msg)
+	code, msg = codeMsg(fmt.Errorf("wrapped: %w", mcperr.New(mcperr.Forbidden, "no")), mcperr.InternalError)
+	assert.Equal(t, mcperr.Forbidden, code, "a wrapped McpError keeps its code")
+	assert.Equal(t, "no", msg)
+	code, msg = codeMsg(errors.New("secret detail"), mcperr.ConnectionError)
+	assert.Equal(t, mcperr.ConnectionError, code)
+	assert.Equal(t, "An internal error occurred.", msg)
+}
+
+// ---------------------------------------------------------------------------
+// create: client id and lost ack
+// ---------------------------------------------------------------------------
+
+func TestCreateCanvasTable_SendsAClientElementID(t *testing.T) {
+	f := newFakeTable(1, 1)
+	_, _, err := createCanvasTable(context.Background(), f.fns(), validCreateTable())
+	require.NoError(t, err)
+	id, _ := f.emitted[0]["id"].(string)
+	assert.Nil(t, validateUUID("id", id))
+}
+
+func TestCreateCanvasTable_LostAckThatLanded_Succeeds(t *testing.T) {
+	f := newFakeTable(1, 1)
+	f.errFor = func(int) (error, bool) { return mcperr.New(mcperr.ConnectionError, "ack timeout"), true }
+	res, _, err := createCanvasTable(context.Background(), f.fns(), validCreateTable())
+	require.NoError(t, err)
+	require.False(t, res.IsError, textOf(res))
+	assert.Contains(t, textOf(res), f.emitted[0]["id"].(string))
+}
+
+func TestCreateCanvasTable_LostAckNotFound_ReportsTheIDAndUnknownOutcome(t *testing.T) {
+	f := newFakeTable(1, 1)
+	f.missing = true
+	f.errFor = func(int) (error, bool) { return mcperr.New(mcperr.ConnectionError, "ack timeout"), false }
+	res, _, err := createCanvasTable(context.Background(), f.fns(), validCreateTable())
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	text := textOf(res)
+	assert.Contains(t, text, f.emitted[0]["id"].(string), "the id is returned so the caller can check it")
+	assert.Contains(t, text, "Outcome unknown")
+	assert.Contains(t, text, "before retrying")
+}
+
+// ---------------------------------------------------------------------------
+// documented limits match the constants
+// ---------------------------------------------------------------------------
+
+func TestEditCanvasTable_DocumentedLimitsMatchTheConstants(t *testing.T) {
+	for _, want := range []string{
+		fmt.Sprintf("1 to %d items", tableMaxChanges),
+		fmt.Sprintf("height >= %g", tableMinRowHeight),
+		fmt.Sprintf("width >= %g", tableMinColWidth),
+		fmt.Sprintf("at most %d characters", tableMaxTextLength),
+	} {
+		assert.Contains(t, editCanvasTableDescription, want)
+	}
+	tag := func(typ any, field string) string {
+		f, ok := reflect.TypeOf(typ).FieldByName(field)
+		require.True(t, ok)
+		return f.Tag.Get("jsonschema")
+	}
+	assert.Contains(t, tag(tableChangeInput{}, "Height"), fmt.Sprintf("at least %g", tableMinRowHeight))
+	assert.Contains(t, tag(tableChangeInput{}, "Width"), fmt.Sprintf("at least %g", tableMinColWidth))
+	assert.Contains(t, tag(tableChangeInput{}, "Text"), fmt.Sprintf("%d characters", tableMaxTextLength))
+	assert.Contains(t, tag(editCanvasTableInput{}, "Changes"), fmt.Sprintf("1 to %d", tableMaxChanges))
+	assert.Contains(t, tag(createCanvasTableInput{}, "Rows"), fmt.Sprintf("%d", tableMaxCells))
+	assert.Contains(t, tag(createCanvasTableInput{}, "Cells"), fmt.Sprintf("%d characters", tableMaxTextLength))
+	assert.Contains(t, tag(createCanvasTableInput{}, "ColumnWidths"), fmt.Sprintf("at least %g", tableMinColWidth))
 }

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -535,4 +536,13 @@ func TestBatchSchema_EmptyEntityID_TableTreatedAsFailure(t *testing.T) {
 	// real_table was created normally.
 	require.Len(t, result.Created.Tables, 1)
 	require.Len(t, result.Created.Columns, 1)
+}
+
+func TestBatchCodeMsg_MasksANonMcpError(t *testing.T) {
+	code, msg := batchCodeMsg(errors.New("dial tcp 10.0.0.7: secret"), nil)
+	assert.Equal(t, "INTERNAL_ERROR", code)
+	assert.Equal(t, "An internal error occurred.", msg)
+	code, msg = batchCodeMsg(mcperr.New(mcperr.NotFound, "gone"), nil)
+	assert.Equal(t, "NOT_FOUND", code)
+	assert.Equal(t, "gone", msg)
 }

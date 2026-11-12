@@ -51,14 +51,8 @@ func aggregatePositions(positions []positionEntry, emit emitFunc) ([]posUpdated,
 			"positionY": pos.PositionY,
 		})
 		if emitErr != nil {
-			code := string(mcperr.InternalError)
-			message := "Unknown error"
-			if me, ok := emitErr.(*mcperr.McpError); ok {
-				code = string(me.Code)
-				message = me.Message
-			} else {
-				message = emitErr.Error()
-			}
+			errCode, message := codeMsg(emitErr, mcperr.InternalError)
+			code := string(errCode)
 			failed = append(failed, posFailed{ID: pos.ID, Code: code, Message: message})
 			continue
 		}

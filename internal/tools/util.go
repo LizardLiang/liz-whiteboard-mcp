@@ -5,6 +5,7 @@
 package tools
 
 import (
+	"errors"
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -64,4 +65,20 @@ func validateUUID(field, value string) *mcperr.McpError {
 		return mcperr.NewField(mcperr.ValidationError, "Invalid uuid", field)
 	}
 	return nil
+}
+
+// internalErrorMessage is the masked message for any error that is not an
+// McpError: a raw driver or socket error must not reach the caller.
+const internalErrorMessage = "An internal error occurred."
+
+// codeMsg returns the (code, message) of err for a per-item failure record. An
+// McpError (found with errors.As, so a wrapped one counts) keeps its own code and
+// message. Anything else reports fallback with the masked message, the same
+// masking fail() applies through mcperr.ToMcpErrorResponse.
+func codeMsg(err error, fallback mcperr.Code) (mcperr.Code, string) {
+	var me *mcperr.McpError
+	if errors.As(err, &me) {
+		return me.Code, me.Message
+	}
+	return fallback, internalErrorMessage
 }

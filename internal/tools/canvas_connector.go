@@ -486,8 +486,14 @@ func createCanvasConnector(
 		return fail(e)
 	}
 
-	return emitCanvasElementEventAs(ctx, userID, in.CanvasBoardID, "element:create", payload,
+	// A connector has no kind colour preset, so it takes a client-generated id:
+	// a lost ack cannot leave a duplicate connector.
+	entity, res := emitCreateWithID(ctx, prodCanvasTableFns(), userID, in.CanvasBoardID, payload,
 		"Server rejected canvas connector creation.")
+	if res != nil {
+		return res, nil, nil
+	}
+	return success(entity)
 }
 
 // updateCanvasConnector reads the connector, merges the caller's changes into

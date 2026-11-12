@@ -339,6 +339,63 @@ async function sceneTable(page: Page, id: string): Promise<SceneTable | undefine
   return s.elements.find((e) => e.id === id)
 }
 
+/**
+ * The row height the BROWSER needs for `text` in a column `colWidth` wide: the
+ * app's own wrap rule (text-layout.ts wrapParagraph, with the todo-marker
+ * advance) over canvas measureText in the app's font stack (render-target.ts
+ * FONT_FAMILY), at 14 px and line height 1.4 plus 8 px padding per side, floored
+ * at the default row height of 40. Measured in the page, not compared to a literal.
+ */
+async function browserFit(
+  page: Page,
+  text: string,
+  colWidth: number,
+  bold: boolean,
+): Promise<number> {
+  return page.evaluate(
+    ({ text, colWidth, bold }) => {
+      const fontSize = 14
+      const ctx = new OffscreenCanvas(1, 1).getContext('2d')!
+      ctx.font = `${bold ? 'bold ' : ''}${fontSize}px system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans CJK TC", sans-serif`
+      const measure = (s: string) => ctx.measureText(s).width
+      const maxWidth = colWidth - 16
+      const advance = fontSize * 1.25
+      let lines = 0
+      for (const paragraph of text.split('\n')) {
+        const todo = paragraph[0] === '☐' || paragraph[0] === '☑'
+        const markerWidth = todo ? measure(paragraph[0]) : 0
+        const widthOf = (from: number, to: number) => {
+          const raw = measure(paragraph.slice(from, to))
+          if (!todo) return raw
+          return from === 0 ? raw - markerWidth + advance : raw + advance
+        }
+        if (paragraph.length === 0 || widthOf(0, paragraph.length) <= maxWidth) {
+          lines += 1
+          continue
+        }
+        let lineStart = 0
+        let lastBreak = -1
+        let i = 0
+        while (i < paragraph.length) {
+          if (widthOf(lineStart, i + 1) > maxWidth && i > lineStart) {
+            lines += 1
+            const breakAt = lastBreak > lineStart ? lastBreak : i
+            lineStart = lastBreak > lineStart ? breakAt + 1 : breakAt
+            lastBreak = -1
+            i = lineStart
+            continue
+          }
+          if (paragraph[i] === ' ') lastBreak = i
+          i += 1
+        }
+        if (lineStart < paragraph.length) lines += 1
+      }
+      return Math.max(40, Math.ceil(lines * fontSize * 1.4 + 16))
+    },
+    { text, colWidth, bold },
+  )
+}
+
 async function storedTable(boardId: string, id: string): Promise<TableProps['table']> {
   const board = await editor.expectOk<CanvasBoardWithElements>('get_canvas_board', {
     canvasBoardId: boardId,
@@ -441,40 +498,80 @@ test.describe('canvas tables over MCP', () => {
     }
   })
 
-  test('a long setText grows its row and no shorter text shrinks it', async () => {
-    const created = await editor.expectOk<CreatedTable>('create_canvas_table', {
-      canvasBoardId: IDS.canvasBoard,
-      positionX: 80,
-      positionY: 700,
-      rows: 2,
-      columns: 2,
-    })
-    const id = created.element.id
-    const before = await storedTable(IDS.canvasBoard, id)
-    expect(before.rows[0].height).toBe(40)
+  test('row heights are never below the browser’s own fit: bold header cell, body cells, todo marker, em dash', async ({
+    browser,
+  }) => {
+    const { page, close } = await openBoardAsEditor(browser, IDS.canvasBoard)
+    try {
+      const header = 'Total revenue' // 97 px regular, 109 px bold: only the bold header wraps in 104 px
+      const long = 'a long sentence that has to wrap over several lines inside one cell '.repeat(2)
+      const todo = '☐ Review the quarterly figures'
+      const dash = 'Q1 — Q2 — Q3'
+      const texts = [header, long, todo, dash, header]
+      // Row 0 is the header row, drawn bold; the last row repeats the header
+      // text as a BODY cell, so the test fails if bold leaks into body rows.
+      const bold = [true, false, false, false, false]
 
-    const long = 'a long sentence that has to wrap over several lines inside one cell '.repeat(2)
-    const grown = await editor.expectOk<EditResult>('edit_canvas_table', {
-      canvasBoardId: IDS.canvasBoard,
-      elementId: id,
-      changes: [{ type: 'setText', row: 0, column: 0, text: long }],
-    })
-    expect(grown.applied).toBe(1)
-    const after = await storedTable(IDS.canvasBoard, id)
-    const grownHeight = after.rows[0].height
-    // The browser's exact fit for this string in a 120 px column is 252 (12
-    // lines); the estimate must never be below it or the text spills.
-    expect(grownHeight).toBeGreaterThanOrEqual(252)
-    expect(grownHeight, 'not absurdly tall').toBeLessThanOrEqual(300)
-    expect(after.rows[1].height).toBe(40)
+      const fits: Array<number> = []
+      for (let r = 0; r < texts.length; r += 1) {
+        fits.push(await browserFit(page, texts[r], 120, bold[r]))
+      }
+      expect(fits[0], 'the bold header cell must wrap in the browser').toBeGreaterThan(40)
+      expect(fits[4], 'the same text as a body cell fits one line').toBe(40)
 
-    await editor.expectOk('edit_canvas_table', {
-      canvasBoardId: IDS.canvasBoard,
-      elementId: id,
-      changes: [{ type: 'setText', row: 0, column: 0, text: 'short' }],
-    })
-    const shorter = await storedTable(IDS.canvasBoard, id)
-    expect(shorter.rows[0].height, 'the MCP never shrinks a row').toBe(grownHeight)
+      const assertRows = (rows: Array<{ height: number }>, how: string) => {
+        for (let r = 0; r < texts.length; r += 1) {
+          expect(
+            rows[r].height,
+            `${how}: row ${r} (${JSON.stringify(texts[r])}) must be at least the browser fit ${fits[r]}`,
+          ).toBeGreaterThanOrEqual(fits[r])
+          expect(
+            rows[r].height,
+            `${how}: row ${r} must not be absurdly tall`,
+          ).toBeLessThanOrEqual(fits[r] + 80)
+        }
+      }
+
+      // Estimated at create time.
+      const created = await editor.expectOk<CreatedTable>('create_canvas_table', {
+        canvasBoardId: IDS.canvasBoard,
+        positionX: 80,
+        positionY: 700,
+        rows: texts.length,
+        columns: 1,
+        cells: texts.map((t) => [t]),
+      })
+      assertRows((await storedTable(IDS.canvasBoard, created.element.id)).rows, 'create')
+
+      // Estimated at edit time.
+      const blank = await editor.expectOk<CreatedTable>('create_canvas_table', {
+        canvasBoardId: IDS.canvasBoard,
+        positionX: 500,
+        positionY: 700,
+        rows: texts.length,
+        columns: 1,
+      })
+      const edit = await editor.expectOk<EditResult>('edit_canvas_table', {
+        canvasBoardId: IDS.canvasBoard,
+        elementId: blank.element.id,
+        changes: texts.map((text, row) => ({ type: 'setText', row, column: 0, text })),
+      })
+      expect(edit.applied).toBe(texts.length)
+      const edited = await storedTable(IDS.canvasBoard, blank.element.id)
+      assertRows(edited.rows, 'edit')
+
+      // Grow only: a shorter text never shrinks the row.
+      const grownHeight = edited.rows[1].height
+      await editor.expectOk('edit_canvas_table', {
+        canvasBoardId: IDS.canvasBoard,
+        elementId: blank.element.id,
+        changes: [{ type: 'setText', row: 1, column: 0, text: 'short' }],
+      })
+      const shorter = await storedTable(IDS.canvasBoard, blank.element.id)
+      expect(shorter.rows[1].height, 'the MCP never shrinks a row').toBe(grownHeight)
+    } finally {
+      await close()
+    }
   })
 
   test('removing the only column reports the app refusal; an unapplied refusal is a tool error', async () => {

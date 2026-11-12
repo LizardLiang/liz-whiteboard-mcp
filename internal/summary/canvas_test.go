@@ -181,3 +181,27 @@ func TestFormatCanvasSummary_UnreadableTableFallsBackToOneLine(t *testing.T) {
 	got := FormatCanvasSummary(canvasBoard("B", el), 1)
 	assert.Contains(t, got, "table @(0,0) 1x1")
 }
+
+func TestFormatCanvasSummary_TableCapsColumns(t *testing.T) {
+	cells := map[string]string{}
+	for c := 0; c < 12; c++ {
+		cells["r0:c"+strconv.Itoa(c)] = "h" + strconv.Itoa(c)
+	}
+	got := FormatCanvasSummary(canvasBoard("B", tableElem(1, 12, true, cells)), 1)
+	assert.Contains(t, got, "1×12 header")
+	assert.Contains(t, got, "h7")
+	assert.NotContains(t, got, "h8", "columns past the cap are not printed")
+	assert.Contains(t, got, "… 4 more columns")
+}
+
+func TestFormatCanvasSummary_TableCapsTotalPreviewLength(t *testing.T) {
+	cells := map[string]string{}
+	for r := 0; r < 10; r++ {
+		for c := 0; c < 8; c++ {
+			cells["r"+strconv.Itoa(r)+":c"+strconv.Itoa(c)] = strings.Repeat("x", 30)
+		}
+	}
+	got := FormatCanvasSummary(canvasBoard("B", tableElem(10, 8, false, cells)), 1)
+	assert.Contains(t, got, "more rows", "a long preview is cut before the row cap")
+	assert.Less(t, len([]rune(got)), 1800)
+}

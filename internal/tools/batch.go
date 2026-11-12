@@ -133,10 +133,8 @@ func entityIDStr(entity any) string {
 // matching the convention in column.go, table.go, and relationship.go.
 func batchCodeMsg(err error, ack socket.AckResult) (string, string) {
 	if err != nil {
-		if me, ok := err.(*mcperr.McpError); ok {
-			return string(me.Code), me.Message
-		}
-		return string(mcperr.InternalError), err.Error()
+		code, message := codeMsg(err, mcperr.InternalError)
+		return string(code), message
 	}
 	return string(mcperr.AckCodeToMcpCode(ack.Code())), msgOr(ack.Message(), "Server rejected operation.")
 }

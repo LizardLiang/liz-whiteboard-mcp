@@ -1,7 +1,6 @@
 package summary
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,75 +24,81 @@ func formatCanvasNumber(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
+// flattenCanvasText collapses all whitespace runs, newlines included, to single
+// spaces, so one element or cell stays one line.
+func flattenCanvasText(s string) string {
+	return strings.Join(strings.Fields(canvasTextReplacer.Replace(s)), " ")
+}
+
+// capRunes cuts s to at most limit runes and marks the cut with an ellipsis.
+func capRunes(s string, limit int) string {
+	if runes := []rune(s); len(runes) > limit {
+		return string(runes[:limit]) + "…"
+	}
+	return s
+}
+
 // canvasSummaryText renders an element's text as a single quoted, length-capped
 // segment. Returns "" when the element carries no text.
 func canvasSummaryText(text *string) string {
 	if text == nil || *text == "" {
 		return ""
 	}
-	flat := strings.Join(strings.Fields(canvasTextReplacer.Replace(*text)), " ")
+	flat := flattenCanvasText(*text)
 	if flat == "" {
 		return ""
 	}
-	runes := []rune(flat)
-	if len(runes) > canvasSummaryTextLimit {
-		flat = string(runes[:canvasSummaryTextLimit]) + "…"
-	}
-	return ` "` + flat + `"`
+	return ` "` + capRunes(flat, canvasSummaryTextLimit) + `"`
+}
+
+// canvasElementHead renders the "<kind> @(<x>,<y>) <w>x<h>" start of an element line.
+func canvasElementHead(e data.CanvasElement) string {
+	return e.Kind +
+		" @(" + formatCanvasNumber(e.PositionX) + "," + formatCanvasNumber(e.PositionY) + ")" +
+		" " + formatCanvasNumber(e.Width) + "x" + formatCanvasNumber(e.Height)
 }
 
 // Table preview limits: one table must not swamp the summary, and a 500-cell
 // table can hold 5000 characters per cell.
 const (
-	canvasSummaryTableRows    = 10
-	canvasSummaryTableCellLen = 30
+	canvasSummaryTableRows     = 10
+	canvasSummaryTableCols     = 8
+	canvasSummaryTableCellLen  = 30
+	canvasSummaryTableMaxRunes = 1500 // total length of one table's preview lines
 )
 
-// canvasTableLines renders a table element as its header line plus up to
-// canvasSummaryTableRows rows of " | "-joined cell text. A table whose props
-// cannot be read falls back to the plain element line, so a damaged row never
-// hides the rest of the board.
+// canvasTableLines renders a table element as its header line plus a capped grid
+// preview: up to canvasSummaryTableRows rows of up to canvasSummaryTableCols
+// cells, " | "-joined, and at most canvasSummaryTableMaxRunes runes in all. A
+// table whose props cannot be read falls back to the plain element line, so a
+// damaged row never hides the rest of the board.
 func canvasTableLines(e data.CanvasElement) []string {
-	var props struct {
-		Table *struct {
-			Rows []struct {
-				ID string `json:"id"`
-			} `json:"rows"`
-			Cols []struct {
-				ID string `json:"id"`
-			} `json:"cols"`
-			Cells map[string]struct {
-				Text string `json:"text"`
-			} `json:"cells"`
-			HeaderRow bool `json:"headerRow"`
-		} `json:"table"`
+	t, err := data.ParseCanvasTable(e.Props)
+	if err != nil {
+		return []string{canvasElementHead(e) + canvasSummaryText(e.Text)}
 	}
-	head := e.Kind +
-		" @(" + formatCanvasNumber(e.PositionX) + "," + formatCanvasNumber(e.PositionY) + ")" +
-		" " + formatCanvasNumber(e.Width) + "x" + formatCanvasNumber(e.Height)
-	if err := json.Unmarshal(e.Props, &props); err != nil || props.Table == nil {
-		return []string{head + canvasSummaryText(e.Text)}
-	}
-	t := props.Table
-	head += " " + strconv.Itoa(len(t.Rows)) + "×" + strconv.Itoa(len(t.Cols))
+	head := canvasElementHead(e) + " " + strconv.Itoa(len(t.Rows)) + "×" + strconv.Itoa(len(t.Cols))
 	if t.HeaderRow {
 		head += " header"
 	}
 	lines := []string{head}
+	shownCols := min(len(t.Cols), canvasSummaryTableCols)
+	used := 0
 	for r, row := range t.Rows {
-		if r == canvasSummaryTableRows {
+		cells := make([]string, shownCols)
+		for c := 0; c < shownCols; c++ {
+			cells[c] = capRunes(flattenCanvasText(t.CellText(row.ID, t.Cols[c].ID)), canvasSummaryTableCellLen)
+		}
+		line := "  " + strings.Join(cells, " | ")
+		used += len([]rune(line))
+		if r == canvasSummaryTableRows || used > canvasSummaryTableMaxRunes {
 			lines = append(lines, "  … "+strconv.Itoa(len(t.Rows)-r)+" more rows")
 			break
 		}
-		cells := make([]string, len(t.Cols))
-		for c, col := range t.Cols {
-			flat := strings.Join(strings.Fields(canvasTextReplacer.Replace(t.Cells[row.ID+":"+col.ID].Text)), " ")
-			if runes := []rune(flat); len(runes) > canvasSummaryTableCellLen {
-				flat = string(runes[:canvasSummaryTableCellLen]) + "…"
-			}
-			cells[c] = flat
-		}
-		lines = append(lines, "  "+strings.Join(cells, " | "))
+		lines = append(lines, line)
+	}
+	if shownCols < len(t.Cols) {
+		lines = append(lines, "  … "+strconv.Itoa(len(t.Cols)-shownCols)+" more columns")
 	}
 	return lines
 }
@@ -157,11 +162,7 @@ func FormatCanvasSummary(board *data.CanvasBoardWithElements, totalElements int)
 				lines = append(lines, canvasTableLines(e)...)
 				continue
 			}
-			lines = append(lines,
-				e.Kind+
-					" @("+formatCanvasNumber(e.PositionX)+","+formatCanvasNumber(e.PositionY)+")"+
-					" "+formatCanvasNumber(e.Width)+"x"+formatCanvasNumber(e.Height)+
-					canvasSummaryText(e.Text))
+			lines = append(lines, canvasElementHead(e)+canvasSummaryText(e.Text))
 		}
 	}
 
