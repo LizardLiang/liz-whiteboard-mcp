@@ -562,9 +562,10 @@ func canvasElementShows(
 }
 
 // canvasElementHolds reports whether a stored element holds every field of an
-// element:update payload. style and props are compared key by key, so keys the
-// app fills in with defaults do not count against a match. A field it does not
-// know makes it report false.
+// element:update payload. props is compared key by key. style is compared
+// whole, because the app replaces the whole style and fills every key the
+// payload omits with its default (styleHolds). A field it does not know makes
+// it report false.
 func canvasElementHolds(el *data.CanvasElement, payload map[string]any) bool {
 	for key, want := range payload {
 		var ok bool
@@ -583,9 +584,9 @@ func canvasElementHolds(el *data.CanvasElement, payload map[string]any) bool {
 			ok = numberIs(float64(el.ZIndex), want)
 		case "text":
 			s, isString := want.(string)
-			ok = isString && el.Text != nil && *el.Text == s
+			ok = isString && strMatches(el.Text, s)
 		case "style":
-			ok = jsonHolds(el.Style, want)
+			ok = styleHolds(el.Style, want)
 		case "props":
 			ok = jsonHolds(el.Props, want)
 		}
@@ -606,6 +607,64 @@ func numberIs(got float64, want any) bool {
 	default:
 		return false
 	}
+}
+
+// canvasStyleDefaults mirrors DEFAULT_ELEMENT_STYLE in the app's
+// src/lib/canvas-engine/scene.ts. The app's canvasElementStyleSchema fills every
+// key an element:update style omits with this value, and stored rows that
+// predate a key lack it. TestCanvasStyleDefaults_MatchTheApp fails when the two
+// drift apart. Values are JSON-decoded shapes (float64, []any).
+var canvasStyleDefaults = map[string]any{
+	"fill":          "rgba(59, 130, 246, 0.10)",
+	"stroke":        "#3b82f6",
+	"strokeWidth":   2.0,
+	"fontSize":      16.0,
+	"color":         "#0f172a",
+	"cornerRadius":  8.0,
+	"textAlign":     "left",
+	"verticalAlign": "top",
+	"fontWeight":    "normal",
+	"fontStyle":     "normal",
+	"underline":     false,
+	"strikethrough": false,
+	"textRuns":      []any{},
+	"role":          nil,
+	"step":          "",
+	"cardShadow":    "auto",
+	"cardBorder":    "subtle",
+}
+
+// styleHolds reports whether the stored style equals the style an element:update
+// with the sent style writes: the defaults with the sent keys on top. Stored
+// keys a row predates are read as their defaults.
+func styleHolds(stored data.JSONText, sent any) bool {
+	var got map[string]any
+	if json.Unmarshal(stored, &got) != nil {
+		return false
+	}
+	raw, err := json.Marshal(sent)
+	if err != nil {
+		return false
+	}
+	var sentMap map[string]any
+	if json.Unmarshal(raw, &sentMap) != nil || sentMap == nil {
+		return false
+	}
+	want := make(map[string]any, len(canvasStyleDefaults)+len(sentMap))
+	for k, v := range canvasStyleDefaults {
+		want[k] = v
+	}
+	for k, v := range sentMap {
+		want[k] = v
+	}
+	full := make(map[string]any, len(canvasStyleDefaults)+len(got))
+	for k, v := range canvasStyleDefaults {
+		full[k] = v
+	}
+	for k, v := range got {
+		full[k] = v
+	}
+	return reflect.DeepEqual(full, want)
 }
 
 // jsonHolds reports whether a stored JSON object holds every key of want with

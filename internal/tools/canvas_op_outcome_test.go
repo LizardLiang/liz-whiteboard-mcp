@@ -49,7 +49,8 @@ func TestUpdateCanvasElement_LostAckThatLandedIsApplied(t *testing.T) {
 	fns := lostCanvasAckFns(&el, func(el **data.CanvasElement, _ string, p map[string]any) {
 		next := **el
 		next.PositionX = p["positionX"].(float64)
-		style, _ := json.Marshal(map[string]any{"fill": "#e5484d", "stroke": "#1c2024", "strokeWidth": 2, "fontSize": 16})
+		// The app replaces the style with the sent keys over its defaults.
+		style, _ := json.Marshal(p["style"])
 		next.Style = data.JSONText(style)
 		*el = &next
 	})
@@ -168,9 +169,32 @@ func TestUpdateCanvasConnector_LostAck(t *testing.T) {
 
 func TestCanvasElementHolds_UnknownFieldIsNotAMatch(t *testing.T) {
 	assert.False(t, canvasElementHolds(rectangleOnBoard(), map[string]any{"rotation": 1.0}))
-	assert.True(t, canvasElementHolds(rectangleOnBoard(), map[string]any{
-		"elementId": canvasOpElementID, "width": 10.0, "style": map[string]any{"fill": "#0090ff"},
-	}))
+}
+
+// The app replaces the whole style on element:update and fills every omitted
+// key with its default, so a sent style matches only a stored style equal to
+// defaults + sent keys.
+func TestCanvasElementHolds_StyleIsComparedWhole(t *testing.T) {
+	stored := func(style string) *data.CanvasElement {
+		el := rectangleOnBoard()
+		el.Style = data.JSONText(style)
+		return el
+	}
+	send := func(style map[string]any) map[string]any {
+		return map[string]any{"elementId": canvasOpElementID, "style": style}
+	}
+	const full = `{"fill":"#0090ff","stroke":"#3b82f6","strokeWidth":2,"fontSize":16,"color":"#0f172a"}`
+
+	// fill sent alone resets stroke to its default: a stored custom stroke means the update did not land.
+	assert.False(t, canvasElementHolds(rectangleOnBoard(), send(map[string]any{"fill": "#0090ff"})))
+	assert.True(t, canvasElementHolds(stored(full), send(map[string]any{"fill": "#0090ff"})))
+	// a row that predates cornerRadius reads as the default, so an old row still matches.
+	assert.True(t, canvasElementHolds(stored(full), send(map[string]any{"fill": "#0090ff", "cornerRadius": 8})))
+	assert.False(t, canvasElementHolds(stored(full), send(map[string]any{"fill": "#0090ff", "cornerRadius": 0})))
+	// style {} resets every key: a styled element did not take it, a default one did.
+	assert.False(t, canvasElementHolds(rectangleOnBoard(), send(map[string]any{})))
+	assert.True(t, canvasElementHolds(stored(`{}`), send(map[string]any{})))
+	assert.True(t, canvasElementHolds(stored(`{"fill":"rgba(59, 130, 246, 0.10)"}`), send(map[string]any{})))
 }
 
 // SocketEmitWithAckNS re-sends once after a reconnect. A delete that landed
