@@ -114,14 +114,11 @@ func loadStoredTable(ctx context.Context, fns canvasTableFns, canvasBoardID, ele
 // Idempotent create
 // ---------------------------------------------------------------------------
 
-// emitCreateWithID emits element:create with a client-generated element id, so a
-// lost ack cannot double-create: after an emit error it reads the element back by
-// that id. It returns the entity to report, or a ready tool result when the call
-// failed or its outcome is unknown.
-//
-// The app honours data.id on element:create (handlers.ts:262-266). It also skips
-// the kind colour preset for such a create (handlers.ts:287), so callers use this
-// only for kinds without a preset: table, text, connector.
+// emitCreateWithID emits element:create with a client-generated element id and
+// resolves a lost ack or a refusal by reading the element back by that id (see
+// idempotent.go). It returns the entity to report, or a ready tool result when
+// the create failed or its outcome is unknown. The app applies the kind colour
+// preset to every create, so every element kind takes this path.
 func emitCreateWithID(
 	ctx context.Context,
 	fns canvasTableFns,
@@ -129,23 +126,26 @@ func emitCreateWithID(
 	payload map[string]any,
 	fallbackMessage string,
 ) (any, *mcp.CallToolResult) {
-	id := uuid.NewString()
-	payload["id"] = id
-	ack, err := fns.emit(ctx, userID, canvasBoardID, "element:create", payload)
-	if err != nil {
-		el, readErr := fns.loadElement(ctx, id)
-		if readErr == nil && el != nil && el.BoardID == canvasBoardID {
-			return map[string]any{"id": id, "note": "created; the ack was lost, the element was found on re-read"}, nil
-		}
-		return nil, toCallResult(mcperr.MakeMcpError(mcperr.ConnectionError, fmt.Sprintf(
-			"Outcome unknown: the create may or may not have landed. The element id is %s; "+
-				"re-read the board (get_canvas_board) for that id before retrying, and do not create again blindly.", id), ""))
+	create := idCreate{
+		send: ackSend(func(p map[string]any) (socket.AckResult, error) {
+			return fns.emit(ctx, userID, canvasBoardID, "element:create", p)
+		}, fallbackMessage),
+		lookup: func(id string) (any, string, bool, error) {
+			el, err := fns.loadElement(ctx, id)
+			if err != nil || el == nil {
+				return nil, "", false, err
+			}
+			return el, el.BoardID, true, nil
+		},
+		scope:  canvasBoardID,
+		noun:   "canvas element",
+		reread: "get_canvas_board",
 	}
-	if !ack.OK() {
-		res, _, _ := canvasAckFailure(ack, fallbackMessage)
-		return nil, res
+	entity, e := create.run(payload)
+	if e != nil {
+		return nil, toCallResult(mcperr.ToMcpErrorResponse(e))
 	}
-	return ack.Entity(), nil
+	return entity, nil
 }
 
 // ---------------------------------------------------------------------------

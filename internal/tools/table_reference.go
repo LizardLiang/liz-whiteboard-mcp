@@ -33,6 +33,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -81,6 +82,9 @@ type tableReferenceFns struct {
 	// must match confirmName against. Direct read rather than a route call: the
 	// guard has to run BEFORE the destructive request leaves this process.
 	confirmNameOf func(ctx context.Context, tableID string) (*data.ReferenceConfirmName, error)
+	// findTable reads a reference node's DiagramTable row by id, to resolve a
+	// create whose response was lost (idempotent.go).
+	findTable func(ctx context.Context, id string) (*data.DiagramTable, error)
 }
 
 // prodTableReferenceFns is the production pipeline.
@@ -91,6 +95,7 @@ func prodTableReferenceFns() tableReferenceFns {
 		deleteReference: appapi.DeleteTableReference,
 		listReferences:  appapi.ListTableReferences,
 		confirmNameOf:   data.FindReferenceConfirmName,
+		findTable:       data.FindDiagramTableByID,
 	}
 }
 
@@ -147,14 +152,49 @@ func createTableReferenceWithFns(
 				"To connect two tables on ONE board, use create_relationship instead.",
 			"sourceWhiteboardId")
 	}
-	return fns.createReference(ctx, userID, appapi.CreateTableReferenceRequest{
-		WhiteboardID:       in.WhiteboardID,
-		SourceWhiteboardID: in.SourceWhiteboardID,
-		SourceTableID:      in.SourceTableID,
-		SourceColumnIDs:    in.SourceColumnIDs,
-		PositionX:          in.PositionX,
-		PositionY:          in.PositionY,
-	})
+	// The node carries a client-generated id, so a lost response is resolved
+	// by reading the node back instead of creating a second one.
+	create := idCreate{
+		send: func(payload map[string]any) (any, *mcperr.McpError, error) {
+			id, _ := payload["id"].(string)
+			reference, err := fns.createReference(ctx, userID, appapi.CreateTableReferenceRequest{
+				ID:                 id,
+				WhiteboardID:       in.WhiteboardID,
+				SourceWhiteboardID: in.SourceWhiteboardID,
+				SourceTableID:      in.SourceTableID,
+				SourceColumnIDs:    in.SourceColumnIDs,
+				PositionX:          in.PositionX,
+				PositionY:          in.PositionY,
+			})
+			if err == nil {
+				return reference, nil, nil
+			}
+			// CONNECTION_ERROR covers no response, a 5xx and an unreadable
+			// body: the create may have landed. Every other code is the app's
+			// answer.
+			var me *mcperr.McpError
+			if errors.As(err, &me) && me.Code != mcperr.ConnectionError {
+				return nil, me, nil
+			}
+			return nil, nil, err
+		},
+		lookup: func(id string) (any, string, bool, error) {
+			table, err := fns.findTable(ctx, id)
+			if err != nil || table == nil {
+				return nil, "", false, err
+			}
+			return map[string]any{"table": table}, table.WhiteboardID, true, nil
+		},
+		scope:  in.WhiteboardID,
+		noun:   "table reference",
+		reread: "list_table_references",
+	}
+	entity, e := create.run(map[string]any{})
+	if e != nil {
+		return nil, e
+	}
+	reference, _ := entity.(map[string]any)
+	return reference, nil
 }
 
 // updateTableReferenceWithFns validates and re-targets one reference.

@@ -448,6 +448,30 @@ func emitCanvasElementEventAs(
 	return success(ack.Entity())
 }
 
+// createCanvasElement builds the payload, runs the write gate and creates the
+// element with a client-generated id (emitCreateWithID), so a lost ack cannot
+// leave a duplicate element.
+func createCanvasElement(
+	ctx context.Context,
+	fns canvasTableFns,
+	in createCanvasElementInput,
+) (*mcp.CallToolResult, any, error) {
+	payload, e := buildCanvasElementCreatePayload(in)
+	if e != nil {
+		return fail(e)
+	}
+	userID, err := fns.authorize(ctx, in.CanvasBoardID)
+	if err != nil {
+		return fail(err)
+	}
+	entity, res := emitCreateWithID(ctx, fns, userID, in.CanvasBoardID, payload,
+		"Server rejected canvas element creation.")
+	if res != nil {
+		return res, nil, nil
+	}
+	return success(entity)
+}
+
 // RegisterCanvasWriteTools registers create_canvas_element,
 // update_canvas_element, and delete_canvas_element.
 func RegisterCanvasWriteTools(s *mcp.Server) {
@@ -455,28 +479,7 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 		Name:        "create_canvas_element",
 		Description: "Create a shape or text element (rectangle, ellipse, diamond, triangle, text) on a canvas board. Lines: create_canvas_connector. Grids: create_canvas_table. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasElementInput) (*mcp.CallToolResult, any, error) {
-		payload, e := buildCanvasElementCreatePayload(in)
-		if e != nil {
-			return fail(e)
-		}
-		// A text element carries no kind colour preset, so it can take a
-		// client-generated id and survive a lost ack without a duplicate. The four
-		// preset kinds cannot: the app skips the preset for a create with an id
-		// (handlers.ts:287). Recorded in .claude/.Arena/debt.md.
-		if in.Kind == "text" {
-			userID, err := authorizeCanvasEdit(ctx, in.CanvasBoardID)
-			if err != nil {
-				return fail(err)
-			}
-			entity, res := emitCreateWithID(ctx, prodCanvasTableFns(), userID, in.CanvasBoardID, payload,
-				"Server rejected canvas element creation.")
-			if res != nil {
-				return res, nil, nil
-			}
-			return success(entity)
-		}
-		return emitCanvasElementEvent(ctx, in.CanvasBoardID, "element:create", payload,
-			"Server rejected canvas element creation.")
+		return createCanvasElement(ctx, prodCanvasTableFns(), in)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{

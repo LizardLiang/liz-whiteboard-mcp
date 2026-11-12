@@ -10,7 +10,6 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/auth"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
-	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
 type createTableInput struct {
@@ -111,14 +110,11 @@ func registerCreateTable(s *mcp.Server) {
 			payload["height"] = *in.Height
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, in.WhiteboardID, userID, "table:create", payload)
-		if err != nil {
-			return fail(err)
+		entity, e := createERRow(prodERWriteFns(ctx, userID), in.WhiteboardID, erTableKind, in.WhiteboardID, payload)
+		if e != nil {
+			return fail(e)
 		}
-		if !ack.OK() {
-			return mcpError(mcperr.AckCodeToMcpCode(ack.Code()), msgOr(ack.Message(), "Server rejected table creation."))
-		}
-		return success(ack.Entity())
+		return success(entity)
 	})
 }
 
@@ -199,7 +195,11 @@ func registerUpdateTable(s *mcp.Server) {
 			if in.Height != nil {
 				metaPayload["height"] = *in.Height
 			}
-			ackMeta, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, "table:update", metaPayload)
+			ackMeta, err := emitOp(ctx, whiteboardID, userID, "table:update", metaPayload,
+				"update of table "+in.TableID,
+				rowCheck(prodERReaders(ctx).table, in.TableID, func(t *data.DiagramTable) bool {
+					return tableShowsUpdate(t, in)
+				}))
 			if err != nil {
 				return fail(err)
 			}
@@ -230,7 +230,11 @@ func registerUpdateTable(s *mcp.Server) {
 				finalY = *in.PositionY
 			}
 			movePayload := map[string]any{"tableId": in.TableID, "positionX": finalX, "positionY": finalY}
-			ackMove, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, "table:move", movePayload)
+			ackMove, err := emitOp(ctx, whiteboardID, userID, "table:move", movePayload,
+				"move of table "+in.TableID,
+				rowCheck(prodERReaders(ctx).table, in.TableID, func(t *data.DiagramTable) bool {
+					return floatMatches(t.PositionX, finalX) && floatMatches(t.PositionY, finalY)
+				}))
 			if err != nil {
 				return fail(err)
 			}
@@ -287,7 +291,8 @@ func registerDeleteTable(s *mcp.Server) {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Table %s not found.", in.TableID))
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, table.WhiteboardID, userID, "table:delete", map[string]any{"tableId": in.TableID})
+		ack, err := emitOp(ctx, table.WhiteboardID, userID, "table:delete", map[string]any{"tableId": in.TableID},
+			"delete of table "+in.TableID, deletedCheck(prodERReaders(ctx).table, in.TableID))
 		if err != nil {
 			return fail(err)
 		}

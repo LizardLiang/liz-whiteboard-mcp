@@ -30,7 +30,7 @@ func TestBulkUpdatePositions_PartialFailure(t *testing.T) {
 		}
 	}
 
-	updated, failed := aggregatePositions(positions, emit)
+	updated, failed := aggregatePositions(positions, emit, noTable)
 
 	assert.Len(t, updated, 1)
 	assert.Equal(t, "id-ok", updated[0].ID)
@@ -52,7 +52,7 @@ func TestBulkUpdatePositions_DefaultCode(t *testing.T) {
 	emit := func(_ string, _ any) (socket.AckResult, error) {
 		return socket.AckResult{"ok": false}, nil
 	}
-	updated, failed := aggregatePositions(positions, emit)
+	updated, failed := aggregatePositions(positions, emit, noTable)
 	assert.Empty(t, updated)
 	assert.Len(t, failed, 1)
 	assert.Equal(t, string(mcperr.ValidationError), failed[0].Code)

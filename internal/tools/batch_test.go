@@ -78,7 +78,7 @@ func TestBatchSchema_AllSuccess(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	assert.Empty(t, result.Failed, "expected no failures")
 	assert.Len(t, result.Created.Tables, 2, "expected 2 created tables")
@@ -142,7 +142,7 @@ func TestBatchSchema_TableFailure_SkipsInlineColumns(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	require.Len(t, result.Failed, 1, "expected exactly 1 failure")
 	assert.Equal(t, "table", result.Failed[0].Kind)
@@ -213,7 +213,7 @@ func TestBatchSchema_RelationNameResolution(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	assert.Empty(t, result.Failed)
 	require.Len(t, result.Created.Relations, 1)
@@ -281,7 +281,7 @@ func TestBatchSchema_RelationToFailedTable(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	// Both the table and the relation that referenced it must appear in failed.
 	require.Len(t, result.Failed, 2, "expected 1 table failure + 1 relation failure")
@@ -332,7 +332,7 @@ func TestBatchSchema_AddColumnsPartialFailure(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	require.Len(t, result.Created.Columns, 1, "expected 1 column created")
 	require.Len(t, result.Failed, 1, "expected 1 failure")
@@ -381,7 +381,7 @@ func TestBatchSchema_RelationByUUID(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	assert.Empty(t, result.Failed)
 	require.Len(t, result.Created.Relations, 1)
@@ -446,7 +446,7 @@ func TestBatchSchema_RelationMixedResolution(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	assert.Empty(t, result.Failed)
 	require.Len(t, result.Created.Tables, 1)
@@ -520,7 +520,7 @@ func TestBatchSchema_EmptyEntityID_TableTreatedAsFailure(t *testing.T) {
 		},
 	}
 
-	result := executeBatchSchema(in, "wb-1", emit)
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
 
 	// ghost_table must appear in Failed with INTERNAL_ERROR.
 	require.Len(t, result.Failed, 1)
@@ -538,11 +538,23 @@ func TestBatchSchema_EmptyEntityID_TableTreatedAsFailure(t *testing.T) {
 	require.Len(t, result.Created.Columns, 1)
 }
 
-func TestBatchCodeMsg_MasksANonMcpError(t *testing.T) {
-	code, msg := batchCodeMsg(errors.New("dial tcp 10.0.0.7: secret"), nil)
-	assert.Equal(t, "INTERNAL_ERROR", code)
-	assert.Equal(t, "An internal error occurred.", msg)
-	code, msg = batchCodeMsg(mcperr.New(mcperr.NotFound, "gone"), nil)
-	assert.Equal(t, "NOT_FOUND", code)
-	assert.Equal(t, "gone", msg)
+// A raw (non-McpError) emit error must not leak into the failure message; an
+// McpError cause keeps its code and message.
+func TestBatchCreateFailure_MasksANonMcpError(t *testing.T) {
+	in := batchSchemaUpdateInput{WhiteboardID: "wb-1", Tables: []batchTableSpec{{Name: "a"}, {Name: "b"}}}
+	emit := func(_ string, payload any) (socket.AckResult, error) {
+		if payload.(map[string]any)["name"] == "a" {
+			return nil, errors.New("dial tcp 10.0.0.7: secret")
+		}
+		return nil, mcperr.New(mcperr.SessionExpired, "token gone")
+	}
+
+	result := executeBatchSchema(in, "wb-1", emit, absentRows())
+
+	require.Len(t, result.Failed, 2)
+	assert.Equal(t, string(mcperr.ConnectionError), result.Failed[0].Code)
+	assert.NotContains(t, result.Failed[0].Message, "secret")
+	assert.Contains(t, result.Failed[0].Message, "Outcome unknown")
+	assert.Equal(t, string(mcperr.SessionExpired), result.Failed[1].Code)
+	assert.Contains(t, result.Failed[1].Message, "token gone")
 }

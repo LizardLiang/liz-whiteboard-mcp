@@ -51,6 +51,8 @@ func tableReferenceFnsRefusing(t *testing.T) tableReferenceFns {
 			t.Error("confirmNameOf called; this test did not expect a name read")
 			return nil, nil
 		},
+		// No reference node exists: a refused create reads nothing back.
+		findTable: func(context.Context, string) (*data.DiagramTable, error) { return nil, nil },
 	}
 }
 
@@ -159,6 +161,60 @@ func TestCreateTableReferencePassesEverythingThrough(t *testing.T) {
 	require.NotNil(t, got.PositionX)
 	assert.InDelta(t, 12.5, *got.PositionX, 0.0001)
 	assert.NotNil(t, out["table"])
+	assert.Nil(t, validateUUID("id", got.ID), "the create carries a client UUID")
+}
+
+// A create whose response was lost (CONNECTION_ERROR) but whose node landed on
+// the board reports success with the node read back by its id.
+func TestCreateTableReferenceLostResponseThatLandedSucceeds(t *testing.T) {
+	stored := map[string]*data.DiagramTable{}
+	fns := tableReferenceFnsRefusing(t)
+	fns.createReference = func(_ context.Context, _ string, req appapi.CreateTableReferenceRequest) (map[string]any, error) {
+		stored[req.ID] = &data.DiagramTable{ID: req.ID, WhiteboardID: req.WhiteboardID}
+		return nil, mcperr.New(mcperr.ConnectionError, "The app returned HTTP 502.")
+	}
+	fns.findTable = func(_ context.Context, id string) (*data.DiagramTable, error) { return stored[id], nil }
+
+	out, err := createTableReferenceWithFns(context.Background(), fns, "user-1", validReferenceInput())
+
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	table, ok := out["table"].(*data.DiagramTable)
+	require.True(t, ok)
+	assert.Equal(t, refLocalBoardID, table.WhiteboardID)
+}
+
+func TestCreateTableReferenceAlreadyExistsOnAnotherBoardIsAnError(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	fns.createReference = func(context.Context, string, appapi.CreateTableReferenceRequest) (map[string]any, error) {
+		return nil, mcperr.New(mcperr.AlreadyExists, "a table with this id already exists")
+	}
+	fns.findTable = func(_ context.Context, id string) (*data.DiagramTable, error) {
+		return &data.DiagramTable{ID: id, WhiteboardID: refSourceBoardID}, nil
+	}
+
+	_, err := createTableReferenceWithFns(context.Background(), fns, "user-1", validReferenceInput())
+
+	require.Error(t, err)
+	var me *mcperr.McpError
+	require.ErrorAs(t, err, &me)
+	assert.Equal(t, mcperr.AlreadyExists, me.Code)
+}
+
+func TestCreateTableReferenceLostResponseNotFoundIsOutcomeUnknown(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	var sentID string
+	fns.createReference = func(_ context.Context, _ string, req appapi.CreateTableReferenceRequest) (map[string]any, error) {
+		sentID = req.ID
+		return nil, mcperr.New(mcperr.ConnectionError, "Cannot reach the app.")
+	}
+
+	_, err := createTableReferenceWithFns(context.Background(), fns, "user-1", validReferenceInput())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Outcome unknown")
+	assert.Contains(t, err.Error(), sentID)
+	assert.Contains(t, err.Error(), "list_table_references")
 }
 
 // ── update ───────────────────────────────────────────────────────────────────

@@ -40,7 +40,14 @@ type emitFunc func(event string, payload any) (socket.AckResult, error)
 
 // aggregatePositions emits one table:move per position and splits the results
 // into updated/failed, mirroring the non-atomic loop in src/mcp/tools/positions.ts.
-func aggregatePositions(positions []positionEntry, emit emitFunc) ([]posUpdated, []posFailed) {
+// After an emit error it re-reads the table with readTable: a table already at
+// the requested position counts as updated, any other result as an unknown
+// outcome (resolveOpAfterEmitError).
+func aggregatePositions(
+	positions []positionEntry,
+	emit emitFunc,
+	readTable func(id string) (*data.DiagramTable, error),
+) ([]posUpdated, []posFailed) {
 	updated := make([]posUpdated, 0)
 	failed := make([]posFailed, 0)
 
@@ -51,9 +58,16 @@ func aggregatePositions(positions []positionEntry, emit emitFunc) ([]posUpdated,
 			"positionY": pos.PositionY,
 		})
 		if emitErr != nil {
-			errCode, message := codeMsg(emitErr, mcperr.InternalError)
-			code := string(errCode)
-			failed = append(failed, posFailed{ID: pos.ID, Code: code, Message: message})
+			_, unknown := resolveOpAfterEmitError(emitErr, "move of table "+pos.ID, "get_board",
+				rowCheck(readTable, pos.ID, func(t *data.DiagramTable) bool {
+					return floatMatches(t.PositionX, pos.PositionX) && floatMatches(t.PositionY, pos.PositionY)
+				}))
+			if unknown == nil {
+				updated = append(updated, posUpdated{ID: pos.ID})
+				continue
+			}
+			errCode, message := codeMsg(unknown, mcperr.InternalError)
+			failed = append(failed, posFailed{ID: pos.ID, Code: string(errCode), Message: message})
 			continue
 		}
 		if !ack.OK() {
@@ -108,7 +122,7 @@ func RegisterPositionsTools(s *mcp.Server) {
 		emit := func(event string, payload any) (socket.AckResult, error) {
 			return socket.SocketEmitWithAck(ctx, in.WhiteboardID, userID, event, payload)
 		}
-		updated, failed := aggregatePositions(in.Positions, emit)
+		updated, failed := aggregatePositions(in.Positions, emit, prodERReaders(ctx).table)
 		return success(map[string]any{"updated": updated, "failed": failed})
 	})
 }

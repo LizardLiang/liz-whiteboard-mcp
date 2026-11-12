@@ -17,7 +17,6 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/schema"
-	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
 type createAreaInput struct {
@@ -134,14 +133,11 @@ func registerCreateArea(s *mcp.Server) {
 			"memberTableIds": memberIDs,
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, in.WhiteboardID, userID, "area:create", payload)
-		if err != nil {
-			return fail(err)
+		entity, e := createERRow(prodERWriteFns(ctx, userID), in.WhiteboardID, erAreaKind, in.WhiteboardID, payload)
+		if e != nil {
+			return fail(e)
 		}
-		if !ack.OK() {
-			return mcpError(mcperr.AckCodeToMcpCode(ack.Code()), msgOr(ack.Message(), "Server rejected area creation."))
-		}
-		return success(ack.Entity())
+		return success(entity)
 	})
 }
 
@@ -227,7 +223,11 @@ func mutateAreaMembership(ctx context.Context, in areaTableInput, add bool) (*mc
 		payload["height"] = bounds.Height
 	}
 
-	ack, err := socket.SocketEmitWithAck(ctx, areaRecord.WhiteboardID, userID, "area:update", payload)
+	ack, err := emitOp(ctx, areaRecord.WhiteboardID, userID, "area:update", payload,
+		"membership update of area "+in.AreaID,
+		rowCheck(prodERReaders(ctx).area, in.AreaID, func(a *data.Area) bool {
+			return areaShowsMembership(a, nextMembers, bounds)
+		}))
 	if err != nil {
 		return fail(err)
 	}
@@ -378,7 +378,11 @@ func registerMoveArea(s *mcp.Server) {
 			"members":   members,
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, areaRecord.WhiteboardID, userID, "area:move", payload)
+		ack, err := emitOp(ctx, areaRecord.WhiteboardID, userID, "area:move", payload,
+			"move of area "+in.AreaID,
+			rowCheck(prodERReaders(ctx).area, in.AreaID, func(a *data.Area) bool {
+				return a.PositionX == in.PositionX && a.PositionY == in.PositionY
+			}))
 		if err != nil {
 			return fail(err)
 		}

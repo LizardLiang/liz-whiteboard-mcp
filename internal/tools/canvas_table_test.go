@@ -207,7 +207,7 @@ func (f *fakeTableEnv) fns() canvasTableFns {
 			f.authed++
 			return "user-1", f.authFail
 		},
-		loadElement: func(context.Context, string) (*data.CanvasElement, error) {
+		loadElement: func(_ context.Context, id string) (*data.CanvasElement, error) {
 			f.loads++
 			if f.loadFail != nil {
 				if err := f.loadFail(f.loads); err != nil {
@@ -217,7 +217,12 @@ func (f *fakeTableEnv) fns() canvasTableFns {
 			if f.missing {
 				return nil, nil
 			}
-			return f.element(), nil
+			el := f.element()
+			// A create that landed is stored under the id it carried.
+			if n := len(f.emitted); n > 0 && f.emitted[n-1]["id"] == id {
+				el.ID = id
+			}
+			return el, nil
 		},
 		emit: func(_ context.Context, _, _, event string, payload map[string]any) (socket.AckResult, error) {
 			f.emitted = append(f.emitted, payload)

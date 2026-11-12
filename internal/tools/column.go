@@ -11,7 +11,6 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/schema"
-	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
 type createColumnInput struct {
@@ -126,14 +125,11 @@ func registerCreateColumn(s *mcp.Server) {
 			payload["order"] = *in.Order
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, "column:create", payload)
-		if err != nil {
-			return fail(err)
+		entity, e := createERRow(prodERWriteFns(ctx, userID), whiteboardID, erColumnKind, in.TableID, payload)
+		if e != nil {
+			return fail(e)
 		}
-		if !ack.OK() {
-			return mcpError(mcperr.AckCodeToMcpCode(ack.Code()), msgOr(ack.Message(), "Server rejected column creation."))
-		}
-		return success(ack.Entity())
+		return success(entity)
 	})
 }
 
@@ -202,7 +198,11 @@ func registerUpdateColumn(s *mcp.Server) {
 			payload["description"] = *in.Description
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, "column:update", payload)
+		ack, err := emitOp(ctx, whiteboardID, userID, "column:update", payload,
+			"update of column "+in.ColumnID,
+			rowCheck(prodERReaders(ctx).column, in.ColumnID, func(c *data.Column) bool {
+				return columnShowsUpdate(c, in)
+			}))
 		if err != nil {
 			return fail(err)
 		}
@@ -245,7 +245,8 @@ func registerDeleteColumn(s *mcp.Server) {
 			return fail(err)
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, "column:delete", map[string]any{"columnId": in.ColumnID})
+		ack, err := emitOp(ctx, whiteboardID, userID, "column:delete", map[string]any{"columnId": in.ColumnID},
+			"delete of column "+in.ColumnID, deletedCheck(prodERReaders(ctx).column, in.ColumnID))
 		if err != nil {
 			return fail(err)
 		}
@@ -303,10 +304,11 @@ func registerReorderColumns(s *mcp.Server) {
 			return fail(err)
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, "column:reorder", map[string]any{
+		ack, err := emitOp(ctx, whiteboardID, userID, "column:reorder", map[string]any{
 			"tableId":          in.TableID,
 			"orderedColumnIds": in.OrderedColumnIDs,
-		})
+		}, "column reorder of table "+in.TableID,
+			columnsShowOrder(prodERReaders(ctx).column, in.TableID, in.OrderedColumnIDs))
 		if err != nil {
 			return fail(err)
 		}

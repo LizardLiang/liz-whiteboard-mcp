@@ -337,8 +337,14 @@ func SocketEmitWithAck(ctx context.Context, whiteboardID, userID, event string, 
 
 // SocketEmitWithAckNS emits a Socket.IO event on <namespace>/<resourceID> and
 // awaits an ack (FR-022). On timeout it returns CONNECTION_ERROR. On disconnect
-// (session_expired or network drop) it attempts ONE reconnect and retries
-// (FR-021); if the reconnect fails it returns SESSION_EXPIRED.
+// (session_expired or network drop) it attempts ONE reconnect and re-sends the
+// same payload (FR-021); if the reconnect fails it returns SESSION_EXPIRED.
+//
+// The re-send is harmless: every create carries a client-generated id, so a
+// re-sent create that already landed is refused (ALREADY_EXISTS) instead of
+// making a second row, and an update or delete re-sent sets the same state.
+// After an error or a refusal the caller resolves the outcome by reading the
+// row back (internal/tools/idempotent.go); this function does not.
 //
 // namespace must be NamespaceWhiteboard or NamespaceCanvas.
 //

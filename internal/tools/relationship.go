@@ -10,7 +10,6 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/schema"
-	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
 type createRelationshipInput struct {
@@ -94,14 +93,11 @@ func registerCreateRelationship(s *mcp.Server) {
 			payload["label"] = *in.Label
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, in.WhiteboardID, userID, "relationship:create", payload)
-		if err != nil {
-			return fail(err)
+		entity, e := createERRow(prodERWriteFns(ctx, userID), in.WhiteboardID, erRelationshipKind, in.WhiteboardID, payload)
+		if e != nil {
+			return fail(e)
 		}
-		if !ack.OK() {
-			return mcpError(mcperr.AckCodeToMcpCode(ack.Code()), msgOr(ack.Message(), "Server rejected relationship creation."))
-		}
-		return success(ack.Entity())
+		return success(entity)
 	})
 }
 
@@ -175,7 +171,11 @@ func registerUpdateRelationship(s *mcp.Server) {
 			payload["label"] = *in.Label
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, existing.WhiteboardID, userID, "relationship:update", payload)
+		ack, err := emitOp(ctx, existing.WhiteboardID, userID, "relationship:update", payload,
+			"update of relationship "+in.RelationshipID,
+			rowCheck(prodERReaders(ctx).relationship, in.RelationshipID, func(r *data.Relationship) bool {
+				return relationshipShowsUpdate(r, in)
+			}))
 		if err != nil {
 			return fail(err)
 		}
@@ -214,7 +214,8 @@ func registerDeleteRelationship(s *mcp.Server) {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Relationship %s not found.", in.RelationshipID))
 		}
 
-		ack, err := socket.SocketEmitWithAck(ctx, existing.WhiteboardID, userID, "relationship:delete", map[string]any{"relationshipId": in.RelationshipID})
+		ack, err := emitOp(ctx, existing.WhiteboardID, userID, "relationship:delete", map[string]any{"relationshipId": in.RelationshipID},
+			"delete of relationship "+in.RelationshipID, deletedCheck(prodERReaders(ctx).relationship, in.RelationshipID))
 		if err != nil {
 			return fail(err)
 		}

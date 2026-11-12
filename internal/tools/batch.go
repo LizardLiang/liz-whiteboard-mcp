@@ -117,26 +117,17 @@ type nameIndex struct {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// entityIDStr extracts the "id" string from an ack entity (map[string]any).
+// entityIDStr extracts the "id" string from a created entity: an ack's
+// map[string]any, or a row read back after a lost ack.
 func entityIDStr(entity any) string {
-	if m, ok := entity.(map[string]any); ok {
-		if id, ok := m["id"].(string); ok {
-			return id
-		}
+	m, ok := entity.(map[string]any)
+	if !ok {
+		m = toMap(entity)
+	}
+	if id, ok := m["id"].(string); ok {
+		return id
 	}
 	return ""
-}
-
-// batchCodeMsg extracts a (code, message) pair from either an emit error or
-// a server-rejected ack result. Mirrors the error-handling pattern in positions.go.
-// Uses mcperr.AckCodeToMcpCode to normalise unknown ack codes to VALIDATION_ERROR,
-// matching the convention in column.go, table.go, and relationship.go.
-func batchCodeMsg(err error, ack socket.AckResult) (string, string) {
-	if err != nil {
-		code, message := codeMsg(err, mcperr.InternalError)
-		return string(code), message
-	}
-	return string(mcperr.AckCodeToMcpCode(ack.Code())), msgOr(ack.Message(), "Server rejected operation.")
 }
 
 // buildColumnPayload constructs the column:create socket event payload from
@@ -253,8 +244,16 @@ func resolveEndpoint(
 //
 // Non-atomic: each item is attempted independently; successes and failures are
 // split into the returned batchSchemaResult.
-func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emitFunc) batchSchemaResult {
-	_ = whiteboardID // socket namespace is already scoped; kept for call-site clarity
+//
+// Every create carries a client-generated id (createERRow); reads resolves a
+// lost ack by reading the row back, so a re-sent create cannot add a second row.
+func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emitFunc, reads erReaders) batchSchemaResult {
+	fns := erWriteFns{
+		emit: func(_, event string, payload any) (socket.AckResult, error) {
+			return emit(event, payload)
+		},
+		reads: reads,
+	}
 
 	result := batchSchemaResult{
 		Created: batchCreated{
@@ -285,17 +284,16 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 			payload["positionY"] = *spec.PositionY
 		}
 
-		ack, err := emit("table:create", payload)
-		if err != nil || !ack.OK() {
-			code, msg := batchCodeMsg(err, ack)
+		tableEntity, e := createERRow(fns, whiteboardID, erTableKind, whiteboardID, payload)
+		if e != nil {
 			result.Failed = append(result.Failed, batchFailure{
 				Kind: "table", Index: i, Name: spec.Name,
-				Code: code, Message: msg,
+				Code: string(e.Code), Message: e.Message,
 			})
 			continue // skip inline columns for a table that failed to create
 		}
 
-		tableID := entityIDStr(ack.Entity())
+		tableID := entityIDStr(tableEntity)
 		if tableID == "" {
 			// Successful ack with no entity ID is treated as a failure: we cannot
 			// emit inline columns or record a name→UUID mapping without the ID.
@@ -308,23 +306,22 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 		}
 		idx.tableIDs[spec.Name] = tableID
 		idx.columnIDs[spec.Name] = make(map[string]string)
-		result.Created.Tables = append(result.Created.Tables, ack.Entity())
+		result.Created.Tables = append(result.Created.Tables, tableEntity)
 
 		for j, col := range spec.Columns {
 			colPayload := buildColumnPayload(tableID, col.Name, col.DataType,
 				col.IsPrimaryKey, col.IsForeignKey, col.IsUnique, col.IsNullable, col.Description)
 
-			colAck, colErr := emit("column:create", colPayload)
-			if colErr != nil || !colAck.OK() {
-				code, msg := batchCodeMsg(colErr, colAck)
+			colEntity, colErr := createERRow(fns, whiteboardID, erColumnKind, tableID, colPayload)
+			if colErr != nil {
 				result.Failed = append(result.Failed, batchFailure{
 					Kind: "column", Index: j, Name: col.Name,
-					Code: code, Message: msg,
+					Code: string(colErr.Code), Message: colErr.Message,
 				})
 				continue
 			}
 
-			colID := entityIDStr(colAck.Entity())
+			colID := entityIDStr(colEntity)
 			if colID == "" {
 				// Without the server-assigned column ID we cannot record the
 				// name→UUID mapping, so name-based relation resolution for this
@@ -337,7 +334,7 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 				continue
 			}
 			idx.columnIDs[spec.Name][col.Name] = colID
-			result.Created.Columns = append(result.Created.Columns, colAck.Entity())
+			result.Created.Columns = append(result.Created.Columns, colEntity)
 		}
 	}
 
@@ -348,17 +345,16 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 		colPayload := buildColumnPayload(spec.TableID, spec.Name, spec.DataType,
 			spec.IsPrimaryKey, spec.IsForeignKey, spec.IsUnique, spec.IsNullable, spec.Description)
 
-		ack, err := emit("column:create", colPayload)
-		if err != nil || !ack.OK() {
-			code, msg := batchCodeMsg(err, ack)
+		colEntity, e := createERRow(fns, whiteboardID, erColumnKind, spec.TableID, colPayload)
+		if e != nil {
 			result.Failed = append(result.Failed, batchFailure{
 				Kind: "column", Index: i, Name: spec.Name,
-				Code: code, Message: msg,
+				Code: string(e.Code), Message: e.Message,
 			})
 			continue
 		}
 
-		colID := entityIDStr(ack.Entity())
+		colID := entityIDStr(colEntity)
 		if colID == "" {
 			result.Failed = append(result.Failed, batchFailure{
 				Kind: "column", Index: i, Name: spec.Name,
@@ -367,7 +363,7 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 			})
 			continue
 		}
-		result.Created.Columns = append(result.Created.Columns, ack.Entity())
+		result.Created.Columns = append(result.Created.Columns, colEntity)
 	}
 
 	// -----------------------------------------------------------------------
@@ -411,17 +407,16 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 			relPayload["label"] = *spec.Label
 		}
 
-		ack, err := emit("relationship:create", relPayload)
-		if err != nil || !ack.OK() {
-			code, msg := batchCodeMsg(err, ack)
+		relEntity, e := createERRow(fns, whiteboardID, erRelationshipKind, whiteboardID, relPayload)
+		if e != nil {
 			result.Failed = append(result.Failed, batchFailure{
 				Kind: "relation", Index: i,
-				Code: code, Message: msg,
+				Code: string(e.Code), Message: e.Message,
 			})
 			continue
 		}
 
-		relID := entityIDStr(ack.Entity())
+		relID := entityIDStr(relEntity)
 		if relID == "" {
 			result.Failed = append(result.Failed, batchFailure{
 				Kind: "relation", Index: i,
@@ -430,7 +425,7 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 			})
 			continue
 		}
-		result.Created.Relations = append(result.Created.Relations, ack.Entity())
+		result.Created.Relations = append(result.Created.Relations, relEntity)
 	}
 
 	return result
@@ -629,7 +624,7 @@ func RegisterBatchTools(s *mcp.Server) {
 		}
 
 		// --- Step 10: execute and return ---
-		result := executeBatchSchema(in, in.WhiteboardID, emit)
+		result := executeBatchSchema(in, in.WhiteboardID, emit, prodERReaders(ctx))
 		return success(result)
 	})
 }
