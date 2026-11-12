@@ -238,6 +238,25 @@ func parseRSAPublicKey(nB64, eB64 string) (*rsa.PublicKey, error) {
 	}, nil
 }
 
+// Clock-skew leeways for access-token time claims. RFC 7519 §4.1.4 and §4.1.5
+// let a verifier allow "some small leeway, usually no more than a few minutes,
+// to account for clock skew".
+//
+// notBeforeLeeway applies to nbf (iat is not checked). The Authorization Server runs in
+// another container and sets nbf = iat = its own "now". On the WSL2 dev host
+// the shared kernel clock was measured stepping +14.7 s for about 200 ms every
+// 5 s (2026-11-12), so a token minted inside a step carried an nbf 14.7 s
+// ahead of the verifier and failed with "token is not valid yet". 30 s covers
+// that step twice over. Accepting a token early is low risk: the AS never
+// issues a token with a future nbf.
+//
+// expiryLeeway applies to exp and stays small, so the skew allowance never
+// keeps an expired token alive for longer than a few seconds.
+const (
+	notBeforeLeeway = 30 * time.Second
+	expiryLeeway    = 5 * time.Second
+)
+
 // NewJWKSVerifier returns a production TokenVerifier that validates RS256 JWTs
 // issued by the self-hosted Authorization Server.
 //
@@ -258,8 +277,8 @@ func parseRSAPublicKey(nB64, eB64 string) (*rsa.PublicKey, error) {
 //  3. iss == issuer (exact string match).
 //  4. aud contains audience (RFC 8707 — the AS may include additional audiences;
 //     we require our own is present).
-//  5. exp not in the past (token not expired).
-//  6. nbf not in the future (token not yet valid, if present).
+//  5. exp not in the past, within expiryLeeway (token not expired).
+//  6. nbf not in the future, within notBeforeLeeway (token valid yet, if present).
 //
 // On any failure the error wraps sdkauth.ErrInvalidToken → middleware emits 401.
 func NewJWKSVerifier(issuer, audience, jwksURL string) sdkauth.TokenVerifier {
@@ -289,7 +308,9 @@ func NewJWKSVerifier(issuer, audience, jwksURL string) sdkauth.TokenVerifier {
 			jwt.WithAudience(audience),
 			jwt.WithValidMethods([]string{"RS256"}),
 			jwt.WithExpirationRequired(),
-			jwt.WithLeeway(5*time.Second), // tolerate small clock skew
+			// golang-jwt applies one leeway to every time claim it checks.
+			// It gets the not-before leeway; expiryLeeway below narrows exp.
+			jwt.WithLeeway(notBeforeLeeway),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", sdkauth.ErrInvalidToken, err)
@@ -301,6 +322,10 @@ func NewJWKSVerifier(issuer, audience, jwksURL string) sdkauth.TokenVerifier {
 		claims, ok := token.Claims.(jwt.MapClaims)
 		if !ok {
 			return nil, fmt.Errorf("%w: unexpected claims type", sdkauth.ErrInvalidToken)
+		}
+		if exp, err := claims.GetExpirationTime(); err == nil && exp != nil &&
+			time.Now().After(exp.Add(expiryLeeway)) {
+			return nil, fmt.Errorf("%w: %v", sdkauth.ErrInvalidToken, jwt.ErrTokenExpired)
 		}
 
 		// sub = liz-whiteboard User.id (the AS sets sub = User.id directly).

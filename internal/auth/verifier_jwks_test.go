@@ -13,6 +13,8 @@
 //   TestJWKSVerifier_UnknownKid            — kid not in JWKS → rejected
 //   TestJWKSVerifier_KeyRotation           — verifier refetches on unknown kid and succeeds after rotation
 //   TestJWKSVerifier_ScopeAndSubExtracted  — UserID=sub and Scopes=scope fields are populated
+//   TestJWKSVerifier_NotBeforeLeeway       — nbf a little ahead accepted, 2 min ahead rejected
+//   TestJWKSVerifier_ExpiryLeewayStaysSmall — exp leeway stays a few seconds
 
 package auth_test
 
@@ -207,7 +209,7 @@ func TestJWKSVerifier_Expired(t *testing.T) {
 	audience := "http://localhost:3011/mcp"
 	verifier := auth.NewJWKSVerifier(issuer, audience, "")
 
-	// exp is 10 minutes in the past (well outside the 5 s leeway).
+	// exp is 10 minutes in the past (well outside the expiry leeway).
 	token := makeToken(t, kp, issuer, audience, "user-abc", "whiteboard", -10*time.Minute)
 
 	_, err := verifier(context.Background(), token, nil)
@@ -327,3 +329,73 @@ func TestJWKSVerifier_BigExponent(t *testing.T) {
 //
 //	documentation clarity.)
 func bigIntToBytes(n *big.Int) []byte { return n.Bytes() }
+
+// makeTokenAt signs a token whose nbf and exp sit at the given offsets from now.
+func makeTokenAt(t *testing.T, kp testKeyPair, issuer, audience string, nbfOffset, expOffset time.Duration) string {
+	t.Helper()
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss":   issuer,
+		"aud":   audience,
+		"sub":   "user-abc",
+		"scope": "whiteboard",
+		"iat":   now.Add(nbfOffset).Unix(),
+		"nbf":   now.Add(nbfOffset).Unix(),
+		"exp":   now.Add(expOffset).Unix(),
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	tok.Header["kid"] = kp.kid
+	signed, err := tok.SignedString(kp.privateKey)
+	require.NoError(t, err, "sign token")
+	return signed
+}
+
+// The Authorization Server sets nbf = iat = its own "now". A verifier clock
+// that runs behind the AS clock sees nbf in the future. A small skew passes;
+// a token that is truly not valid yet stays rejected.
+func TestJWKSVerifier_NotBeforeLeeway(t *testing.T) {
+	kp := generateTestKeyPair(t, "key-1")
+	serverURL, _ := jwksServerFor(t, []testKeyPair{kp})
+	audience := "http://localhost:3011/mcp"
+	verifier := auth.NewJWKSVerifier(serverURL, audience, "")
+
+	cases := []struct {
+		name      string
+		nbfOffset time.Duration
+		accept    bool
+	}{
+		{"nbf 2 s ahead", 2 * time.Second, true},
+		// The WSL2 clock step measured on the dev host on 2026-11-12.
+		{"nbf 15 s ahead", 15 * time.Second, true},
+		{"nbf 2 min ahead", 2 * time.Minute, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			token := makeTokenAt(t, kp, serverURL, audience, tc.nbfOffset, 10*time.Minute)
+			_, err := verifier(context.Background(), token, nil)
+			if tc.accept {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, sdkauth.ErrInvalidToken)
+		})
+	}
+}
+
+// The not-before leeway must not widen expiry acceptance.
+func TestJWKSVerifier_ExpiryLeewayStaysSmall(t *testing.T) {
+	kp := generateTestKeyPair(t, "key-1")
+	serverURL, _ := jwksServerFor(t, []testKeyPair{kp})
+	audience := "http://localhost:3011/mcp"
+	verifier := auth.NewJWKSVerifier(serverURL, audience, "")
+
+	stale := makeTokenAt(t, kp, serverURL, audience, -time.Hour, -15*time.Second)
+	_, err := verifier(context.Background(), stale, nil)
+	require.Error(t, err, "a token expired 15 s ago must be rejected")
+	assert.ErrorIs(t, err, sdkauth.ErrInvalidToken)
+
+	justExpired := makeTokenAt(t, kp, serverURL, audience, -time.Hour, -2*time.Second)
+	_, err = verifier(context.Background(), justExpired, nil)
+	require.NoError(t, err, "a token expired 2 s ago is inside the expiry leeway")
+}
