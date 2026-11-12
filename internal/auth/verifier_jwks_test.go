@@ -399,3 +399,26 @@ func TestJWKSVerifier_ExpiryLeewayStaysSmall(t *testing.T) {
 	_, err = verifier(context.Background(), justExpired, nil)
 	require.NoError(t, err, "a token expired 2 s ago is inside the expiry leeway")
 }
+
+// The SDK's RequireBearerToken rejects a past TokenInfo.Expiration with no
+// leeway, so the verifier carries expiryLeeway in Expiration. Through the real
+// middleware, a token expired 3 s ago is served and one expired 10 s ago is a 401.
+func TestJWKSVerifier_ExpiryLeewayHoldsThroughRequireBearerToken(t *testing.T) {
+	kp := generateTestKeyPair(t, "key-1")
+	serverURL, _ := jwksServerFor(t, []testKeyPair{kp})
+	audience := "http://localhost:3011/mcp"
+	verifier := auth.NewJWKSVerifier(serverURL, audience, "")
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	protected := sdkauth.RequireBearerToken(verifier, nil)(inner)
+
+	serve := func(expOffset time.Duration) int {
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+makeTokenAt(t, kp, serverURL, audience, -time.Hour, expOffset))
+		rr := httptest.NewRecorder()
+		protected.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	assert.Equal(t, http.StatusOK, serve(-3*time.Second), "expired 3 s ago is inside the 5 s leeway")
+	assert.Equal(t, http.StatusUnauthorized, serve(-10*time.Second), "expired 10 s ago is outside it")
+}

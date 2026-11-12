@@ -242,16 +242,18 @@ func parseRSAPublicKey(nB64, eB64 string) (*rsa.PublicKey, error) {
 // let a verifier allow "some small leeway, usually no more than a few minutes,
 // to account for clock skew".
 //
-// notBeforeLeeway applies to nbf (iat is not checked). The Authorization Server runs in
-// another container and sets nbf = iat = its own "now". On the WSL2 dev host
-// the shared kernel clock was measured stepping +14.7 s for about 200 ms every
-// 5 s (2026-11-12), so a token minted inside a step carried an nbf 14.7 s
-// ahead of the verifier and failed with "token is not valid yet". 30 s covers
-// that step twice over. Accepting a token early is low risk: the AS never
+// notBeforeLeeway applies to nbf (iat is not checked). The Authorization
+// Server runs in another container and sets nbf = iat = its own "now". On the
+// WSL2 dev host the shared kernel clock was measured stepping +14.7 s for
+// about 200 ms every 5 s (2026-11-12), so a token minted inside a step carried
+// an nbf 14.7 s ahead of the verifier and failed with "token is not valid
+// yet". 30 s covers that step twice over. Accepting a token early is low risk: the AS never
 // issues a token with a future nbf.
 //
 // expiryLeeway applies to exp and stays small, so the skew allowance never
-// keeps an expired token alive for longer than a few seconds.
+// keeps an expired token alive for longer than a few seconds. The go-sdk
+// rejects a token whose TokenInfo.Expiration is past, so the verifier adds
+// expiryLeeway to Expiration; that makes the leeway real end to end.
 const (
 	notBeforeLeeway = 30 * time.Second
 	expiryLeeway    = 5 * time.Second
@@ -343,7 +345,7 @@ func NewJWKSVerifier(issuer, audience, jwksURL string) sdkauth.TokenVerifier {
 			}
 		}
 
-		// exp was already validated by jwt.Parse; read it back for TokenInfo.
+		// Read exp back for TokenInfo.
 		expClaim, err := claims.GetExpirationTime()
 		if err != nil || expClaim == nil {
 			return nil, fmt.Errorf("%w: missing exp claim", sdkauth.ErrInvalidToken)
@@ -352,7 +354,10 @@ func NewJWKSVerifier(issuer, audience, jwksURL string) sdkauth.TokenVerifier {
 		return &sdkauth.TokenInfo{
 			UserID:     sub,
 			Scopes:     scopes,
-			Expiration: expClaim.Time,
+			// The go-sdk's RequireBearerToken rejects a token once Expiration is
+			// past, with no leeway of its own. Adding expiryLeeway here makes
+			// the RFC 7519 §4.1.4 leeway real end to end.
+			Expiration: expClaim.Time.Add(expiryLeeway),
 		}, nil
 	}
 }
