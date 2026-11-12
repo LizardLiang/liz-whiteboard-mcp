@@ -78,6 +78,7 @@ type updateCanvasConnectorInput struct {
 type canvasConnectorFns struct {
 	authorize   func(ctx context.Context, canvasBoardID string) (string, error)
 	loadElement func(ctx context.Context, elementID string) (*data.CanvasElement, error)
+	emit        canvasEmit
 }
 
 // prodCanvasConnectorFns wires the production gate and reader.
@@ -89,6 +90,7 @@ func prodCanvasConnectorFns() canvasConnectorFns {
 	return canvasConnectorFns{
 		authorize:   authorizeCanvasEdit,
 		loadElement: data.FindCanvasElementByID,
+		emit:        prodCanvasTableFns().emit,
 	}
 }
 
@@ -521,8 +523,9 @@ func updateCanvasConnector(
 	// moving an endpoint changes nothing about it.
 	payload := map[string]any{"elementId": in.ElementID, "props": props}
 
-	return emitCanvasElementEventAs(ctx, userID, in.CanvasBoardID, "element:update", payload,
-		"Server rejected canvas connector update.")
+	return emitCanvasOp(ctx, fns.emit, userID, in.CanvasBoardID, "element:update", payload,
+		"Server rejected canvas connector update.", "update of canvas connector "+in.ElementID,
+		canvasElementShows(ctx, fns.loadElement, in.CanvasBoardID, payload))
 }
 
 // RegisterCanvasConnectorTools registers create_canvas_connector and

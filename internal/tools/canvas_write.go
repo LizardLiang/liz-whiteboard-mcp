@@ -25,7 +25,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -414,40 +416,6 @@ func canvasAckFailure(ack socket.AckResult, fallback string) (*mcp.CallToolResul
 	return mcpError(mcperr.AckCodeToMcpCode(code), canvasAckMessage(code, msgOr(ack.Message(), fallback)))
 }
 
-// emitCanvasElementEvent runs the write gate and emits one element event on the
-// canvas namespace. Returns the ack's entity on success.
-func emitCanvasElementEvent(
-	ctx context.Context,
-	canvasBoardID, event string,
-	payload map[string]any,
-	fallbackMessage string,
-) (*mcp.CallToolResult, any, error) {
-	userID, err := authorizeCanvasEdit(ctx, canvasBoardID)
-	if err != nil {
-		return fail(err)
-	}
-	return emitCanvasElementEventAs(ctx, userID, canvasBoardID, event, payload, fallbackMessage)
-}
-
-// emitCanvasElementEventAs emits one element event for an ALREADY authorized
-// user. The connector tools need this split: they run the gate first, then read
-// the elements their endpoints name, and only then know the payload.
-func emitCanvasElementEventAs(
-	ctx context.Context,
-	userID, canvasBoardID, event string,
-	payload map[string]any,
-	fallbackMessage string,
-) (*mcp.CallToolResult, any, error) {
-	ack, err := socket.SocketEmitWithAckNS(ctx, socket.NamespaceCanvas, canvasBoardID, userID, event, payload)
-	if err != nil {
-		return fail(err)
-	}
-	if !ack.OK() {
-		return canvasAckFailure(ack, fallbackMessage)
-	}
-	return success(ack.Entity())
-}
-
 // createCanvasElement builds the payload, runs the write gate and creates the
 // element with a client-generated id (emitCreateWithID), so a lost ack cannot
 // leave a duplicate element.
@@ -486,23 +454,157 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 		Name:        "update_canvas_element",
 		Description: "Move, resize, restyle, re-label, or restack one canvas element. Needs at least one field. style replaces the whole style. Tables: use edit_canvas_table for the grid. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateCanvasElementInput) (*mcp.CallToolResult, any, error) {
-		payload, e := buildCanvasElementUpdatePayload(in)
-		if e != nil {
-			return fail(e)
-		}
-		return emitCanvasElementEvent(ctx, in.CanvasBoardID, "element:update", payload,
-			"Server rejected canvas element update.")
+		return updateCanvasElement(ctx, prodCanvasTableFns(), in)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_canvas_element",
 		Description: "Permanently delete one element from a canvas board. A missing or foreign id reports NOT_FOUND.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteCanvasElementInput) (*mcp.CallToolResult, any, error) {
-		if e := validateUUID("elementId", in.ElementID); e != nil {
+		return deleteCanvasElement(ctx, prodCanvasTableFns(), in)
+	})
+}
+
+// canvasEmit emits one element event on a canvas board as userID.
+type canvasEmit func(ctx context.Context, userID, canvasBoardID, event string, payload map[string]any) (socket.AckResult, error)
+
+// emitCanvasOp emits one element:update or element:delete. After an emit error
+// it re-reads with check (resolveOpAfterEmitError): the re-read element when
+// it shows the change applied, otherwise "Outcome unknown". what names the
+// change in that message, e.g. "update of canvas element <id>".
+func emitCanvasOp(
+	ctx context.Context,
+	emit canvasEmit,
+	userID, canvasBoardID, event string,
+	payload map[string]any,
+	fallbackMessage, what string,
+	check opCheck,
+) (*mcp.CallToolResult, any, error) {
+	ack, err := emit(ctx, userID, canvasBoardID, event, payload)
+	if err != nil {
+		entity, e := resolveOpAfterEmitError(err, what, "get_canvas_board", check)
+		if e != nil {
 			return fail(e)
 		}
-		return emitCanvasElementEvent(ctx, in.CanvasBoardID, "element:delete",
-			map[string]any{"elementId": in.ElementID},
-			"Server rejected canvas element deletion.")
-	})
+		return success(entity)
+	}
+	if !ack.OK() {
+		return canvasAckFailure(ack, fallbackMessage)
+	}
+	return success(ack.Entity())
+}
+
+// updateCanvasElement validates, runs the write gate and emits element:update.
+func updateCanvasElement(ctx context.Context, fns canvasTableFns, in updateCanvasElementInput) (*mcp.CallToolResult, any, error) {
+	payload, e := buildCanvasElementUpdatePayload(in)
+	if e != nil {
+		return fail(e)
+	}
+	userID, err := fns.authorize(ctx, in.CanvasBoardID)
+	if err != nil {
+		return fail(err)
+	}
+	return emitCanvasOp(ctx, fns.emit, userID, in.CanvasBoardID, "element:update", payload,
+		"Server rejected canvas element update.", "update of canvas element "+in.ElementID,
+		canvasElementShows(ctx, fns.loadElement, in.CanvasBoardID, payload))
+}
+
+// deleteCanvasElement validates, runs the write gate and emits element:delete.
+func deleteCanvasElement(ctx context.Context, fns canvasTableFns, in deleteCanvasElementInput) (*mcp.CallToolResult, any, error) {
+	if e := validateUUID("elementId", in.ElementID); e != nil {
+		return fail(e)
+	}
+	userID, err := fns.authorize(ctx, in.CanvasBoardID)
+	if err != nil {
+		return fail(err)
+	}
+	return emitCanvasOp(ctx, fns.emit, userID, in.CanvasBoardID, "element:delete",
+		map[string]any{"elementId": in.ElementID},
+		"Server rejected canvas element deletion.", "delete of canvas element "+in.ElementID,
+		deletedCheck(func(id string) (*data.CanvasElement, error) { return fns.loadElement(ctx, id) }, in.ElementID))
+}
+
+// canvasElementShows is the opCheck of an element:update: applied when the
+// element is on the board and holds every field the payload sent.
+func canvasElementShows(
+	ctx context.Context,
+	load func(ctx context.Context, elementID string) (*data.CanvasElement, error),
+	canvasBoardID string,
+	payload map[string]any,
+) opCheck {
+	id, _ := payload["elementId"].(string)
+	return rowCheck(func(id string) (*data.CanvasElement, error) { return load(ctx, id) }, id,
+		func(el *data.CanvasElement) bool {
+			return el.BoardID == canvasBoardID && canvasElementHolds(el, payload)
+		})
+}
+
+// canvasElementHolds reports whether a stored element holds every field of an
+// element:update payload. style and props are compared key by key, so keys the
+// app fills in with defaults do not count against a match. A field it does not
+// know makes it report false.
+func canvasElementHolds(el *data.CanvasElement, payload map[string]any) bool {
+	for key, want := range payload {
+		var ok bool
+		switch key {
+		case "elementId":
+			ok = true
+		case "positionX":
+			ok = numberIs(el.PositionX, want)
+		case "positionY":
+			ok = numberIs(el.PositionY, want)
+		case "width":
+			ok = numberIs(el.Width, want)
+		case "height":
+			ok = numberIs(el.Height, want)
+		case "zIndex":
+			ok = numberIs(float64(el.ZIndex), want)
+		case "text":
+			s, isString := want.(string)
+			ok = isString && el.Text != nil && *el.Text == s
+		case "style":
+			ok = jsonHolds(el.Style, want)
+		case "props":
+			ok = jsonHolds(el.Props, want)
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// numberIs reports whether want is a number equal to got.
+func numberIs(got float64, want any) bool {
+	switch v := want.(type) {
+	case float64:
+		return got == v
+	case int:
+		return got == float64(v)
+	default:
+		return false
+	}
+}
+
+// jsonHolds reports whether a stored JSON object holds every key of want with
+// an equal value. Both sides go through encoding/json, so number types match.
+func jsonHolds(stored data.JSONText, want any) bool {
+	var got map[string]any
+	if json.Unmarshal(stored, &got) != nil {
+		return false
+	}
+	raw, err := json.Marshal(want)
+	if err != nil {
+		return false
+	}
+	var wantMap map[string]any
+	if json.Unmarshal(raw, &wantMap) != nil {
+		return false
+	}
+	for key, value := range wantMap {
+		if !reflect.DeepEqual(got[key], value) {
+			return false
+		}
+	}
+	return true
 }
