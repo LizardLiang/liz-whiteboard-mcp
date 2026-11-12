@@ -10,8 +10,6 @@ import { EDITOR_USER, IDS, MCP_URL } from './fixtures'
 import { McpClient } from './mcp-client'
 import { mintAccessToken } from './oauth'
 
-const TOOL_COUNT = 54
-
 let token: string
 
 test.beforeAll(async () => {
@@ -24,10 +22,31 @@ async function connected(headers: Record<string, string> = {}): Promise<McpClien
   return client
 }
 
-test('no header lists all 54 tools', async () => {
+test('no header lists all tools: a superset of, and longer than, the canvas list', async () => {
   const names = await (await connected()).listToolNames()
-  expect(names).toHaveLength(TOOL_COUNT)
+  const canvas = await (await connected({ 'X-Liz-Toolsets': 'canvas' })).listToolNames()
   expect(names).toContain('get_tool_guide')
+  expect(names).toContain('create_table')
+  expect(names).toContain('create_project')
+  for (const name of canvas) expect(names).toContain(name)
+  expect(names.length).toBeGreaterThan(canvas.length)
+})
+
+test('a request without a token gets 401', async () => {
+  const response = await fetch(MCP_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  })
+  expect(response.status).toBe(401)
+})
+
+test('a later request in the same session with a different header keeps the session toolsets', async () => {
+  const client = await connected({ 'X-Liz-Toolsets': 'canvas' })
+  client.setHeader('X-Liz-Toolsets', 'er')
+  const names = await client.listToolNames()
+  expect(names).toContain('edit_canvas_table')
+  expect(names).not.toContain('create_table')
 })
 
 test('X-Liz-Toolsets: canvas lists only core and canvas tools, and a canvas create works', async () => {
@@ -38,7 +57,6 @@ test('X-Liz-Toolsets: canvas lists only core and canvas tools, and a canvas crea
   expect(names).toContain('edit_canvas_table')
   expect(names).not.toContain('create_table')
   expect(names).not.toContain('create_project')
-  expect(names).toHaveLength(16)
 
   const element = await client.expectOk<{ id: string }>('create_canvas_element', {
     canvasBoardId: IDS.canvasBoard,

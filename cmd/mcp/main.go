@@ -59,7 +59,6 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/auth"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/db"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
-	"github.com/LizardLiang/liz-whiteboard-mcp/internal/tools"
 )
 
 func main() {
@@ -151,21 +150,15 @@ func main() {
 		Scopes: []string{"whiteboard"},
 	}
 
-	// One prebuilt server per toolset combination, built lazily and cached by
-	// the sorted set (at most 8). The X-Liz-Toolsets header picks one when a
-	// session starts; a session keeps its server for its whole life. The
-	// registered tool count lives in tools.ToolCount, which
-	// TestToolCountMatchesDocumentation pins to the registration and README.md.
+	// One prebuilt server per toolset combination (at most 8), all built at
+	// startup. The X-Liz-Toolsets header picks one when a session starts; a
+	// session keeps its server for its whole life. The registered tool count
+	// lives in tools.ToolCount, which TestToolCountMatchesDocumentation pins to
+	// the registration and README.md.
 	servers := newToolsetServers()
 
 	// Build the Streamable HTTP handler, then wrap with bearer middleware.
-	mcpHandler := toolsetHeaderGuard(mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		set, err := tools.ParseToolsets(r.Header.Get(tools.ToolsetHeader))
-		if err != nil {
-			set = tools.AllToolsets() // unreachable: toolsetHeaderGuard rejects a bad value first
-		}
-		return servers.get(set)
-	}, nil))
+	mcpHandler := toolsetHeaderGuard(mcp.NewStreamableHTTPHandler(servers.getServer, nil))
 	protectedMCPHandler := sdkauth.RequireBearerToken(verifier, bearerOpts)(mcpHandler)
 
 	mux := http.NewServeMux()

@@ -129,37 +129,62 @@ func AllToolsets() ToolsetSet {
 	return set
 }
 
+// sortedKeys returns the keys of m as sorted strings.
+func sortedKeys[K ~string, V any](m map[K]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, string(k))
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Key is the sorted, comma-joined set. It names the cached server.
 func (s ToolsetSet) Key() string {
-	names := make([]string, 0, len(s))
-	for ts := range s {
+	return strings.Join(sortedKeys(s), ",")
+}
+
+// validToolsetNames lists the names the header accepts, for error text.
+func validToolsetNames() string {
+	names := []string{"all", string(ToolsetCore)}
+	for _, ts := range SelectableToolsets {
 		names = append(names, string(ts))
 	}
-	sort.Strings(names)
-	return strings.Join(names, ",")
+	return strings.Join(names, ", ")
 }
 
 // ParseToolsets reads an X-Liz-Toolsets value: comma-separated, case and space
 // insensitive, duplicates ignored. An empty value, or "all", selects every
-// toolset. "core" is accepted and adds nothing (it is always on). An unknown
-// name returns an error that lists the valid names.
+// toolset. "core" is accepted and adds nothing (it is always on). Every name is
+// checked, so "all,nope" fails. An unknown name returns an error that lists the
+// valid names.
 func ParseToolsets(header string) (ToolsetSet, error) {
 	if strings.TrimSpace(strings.ReplaceAll(header, ",", "")) == "" {
 		return AllToolsets(), nil
 	}
+	selectable := make(map[string]Toolset, len(SelectableToolsets))
+	for _, ts := range SelectableToolsets {
+		selectable[string(ts)] = ts
+	}
 	set := ToolsetSet{}
+	sawAll := false
 	for _, part := range strings.Split(header, ",") {
 		name := strings.ToLower(strings.TrimSpace(part))
+		if ts, ok := selectable[name]; ok {
+			set[ts] = true
+			continue
+		}
 		switch name {
 		case "", string(ToolsetCore):
 		case "all":
-			return AllToolsets(), nil
-		case string(ToolsetER), string(ToolsetCanvas), string(ToolsetManage):
-			set[Toolset(name)] = true
+			sawAll = true
 		default:
-			return nil, fmt.Errorf("unknown toolset %q in %s; valid toolsets: all, core, er, canvas, manage",
-				name, ToolsetHeader)
+			return nil, fmt.Errorf("unknown toolset %q in %s; valid toolsets: %s",
+				name, ToolsetHeader, validToolsetNames())
 		}
+	}
+	if sawAll {
+		return AllToolsets(), nil
 	}
 	return set, nil
 }
@@ -176,25 +201,4 @@ func NewServer(impl *mcp.Implementation, set ToolsetSet) *mcp.Server {
 	}
 	s.RemoveTools(drop...)
 	return s
-}
-
-// ToolsetNames lists every tagged tool name, sorted. Tests compare it with the
-// registered tools.
-func ToolsetNames() []string {
-	out := make([]string, 0, len(toolToolset))
-	for n := range toolToolset {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
-}
-
-// GuideToolNames lists the tools that have a guide entry, sorted.
-func GuideToolNames() []string {
-	out := make([]string, 0, len(toolGuides))
-	for n := range toolGuides {
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
 }

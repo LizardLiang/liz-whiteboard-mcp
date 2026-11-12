@@ -197,7 +197,7 @@ func RegisterBoardImageTools(s *mcp.Server) {
 func registerBoardImageToolsWith(s *mcp.Server, wb, cv boardImageDeps) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_board_image",
-		Description: "Render an ER whiteboard as PNG image(s): mode fit (default, whole board) or tiles (up to 12). Text blocks give each image's board rectangle. Data: get_board.",
+		Description: "Render an ER whiteboard as PNG image(s): mode fit (default, whole board) or tiles (up to 12). Text blocks give each image's board rectangle. For element ids to pass in focusIds, call get_board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in whiteboardImageInput) (*mcp.CallToolResult, any, error) {
 		return runBoardImage(ctx, wb, appapi.RenderKindWhiteboard, "whiteboardId", in.WhiteboardID,
 			fmt.Sprintf("Whiteboard %s not found.", in.WhiteboardID),
@@ -206,7 +206,7 @@ func registerBoardImageToolsWith(s *mcp.Server, wb, cv boardImageDeps) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_canvas_board_image",
-		Description: "Render a canvas board as PNG image(s): mode fit (default, whole board) or tiles (up to 12). Text blocks give each image's board rectangle. Data: get_canvas_board.",
+		Description: "Render a canvas board as PNG image(s): mode fit (default, whole board) or tiles (up to 12). Text blocks give each image's board rectangle. For element ids to pass in focusIds, call get_canvas_board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in canvasBoardImageInput) (*mcp.CallToolResult, any, error) {
 		return runBoardImage(ctx, cv, appapi.RenderKindCanvas, "canvasBoardId", in.CanvasBoardID,
 			fmt.Sprintf("Canvas board %s not found.", in.CanvasBoardID),

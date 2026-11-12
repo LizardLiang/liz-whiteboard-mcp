@@ -179,7 +179,7 @@ func deleteCanvasBoardWithFns(
 	if in.ConfirmName == "" {
 		return nil, mcperr.NewField(mcperr.ValidationError,
 			"confirmName is required: pass the board's exact current name to confirm this delete. "+
-				"Read it with get_canvas_board first.", "confirmName")
+				"Read it with list_canvas_boards first.", "confirmName")
 	}
 	if err := authorizeExistingCanvasBoard(ctx, fns, userID, in.CanvasBoardID); err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func deleteCanvasBoardWithFns(
 	if board.Name != in.ConfirmName {
 		return nil, mcperr.NewField(mcperr.ValidationError,
 			fmt.Sprintf("confirmName does not match the current name of canvas board %s. "+
-				"Nothing was deleted. Read the board with get_canvas_board and pass its exact name.",
+				"Nothing was deleted. Read the name with list_canvas_boards and pass it exactly.",
 				in.CanvasBoardID), "confirmName")
 	}
 
@@ -235,7 +235,7 @@ func RegisterCanvasBoardTools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_canvas_board",
-		Description: "Permanently delete a canvas board with all its elements and share links. confirmName must equal the exact name (see get_canvas_board). EDITOR role.",
+		Description: "Permanently delete a canvas board with all its elements and share links. confirmName must equal the exact name (see list_canvas_boards). EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteCanvasBoardInput) (*mcp.CallToolResult, any, error) {
 		board, err := deleteCanvasBoardWithFns(ctx, prodCanvasBoardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {

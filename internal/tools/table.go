@@ -125,7 +125,7 @@ func registerCreateTable(s *mcp.Server) {
 func registerUpdateTable(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "update_table",
-		Description: "Update a table's name, description, size, or position.",
+		Description: "Update a table's name, description, size, or position. Not atomic: it applies the update, then the move; a move error can follow a saved rename.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateTableInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("tableId", in.TableID); e != nil {
 			return fail(e)

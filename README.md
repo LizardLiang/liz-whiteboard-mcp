@@ -99,7 +99,7 @@ Every session receives the tool list before it does any work, so the list is the
 | `canvas` | `get_canvas_board`, `get_canvas_summary`, elements, connectors, canvas tables, `get_canvas_board_image` |
 | `manage` | create, update and delete for projects, folders, whiteboards and canvas boards |
 
-Claude Desktop custom connectors cannot set headers, so Desktop always gets all tools. A proxy that strips the header also gives all tools.
+Claude Desktop custom connectors cannot send this header (custom header names need Anthropic approval), so Desktop always gets all tools. A proxy that strips the header also gives all tools.
 
 **Short descriptions, long guides on demand.** Tool descriptions state what the tool does. The long rules live in `get_tool_guide {tool}`. The server `instructions` tell the agent to read `get_schema_summary` or `get_canvas_summary` before the full board reads.
 
@@ -107,11 +107,11 @@ Size of `tools/list` (JSON characters; `TestToolsListBudgets` pins the limits):
 
 | Header | Tools | Before | After |
 |---|---|---|---|
-| none or `all` | 54 | 45,023 | 28,353 |
+| none or `all` | 54 | 45,023 | 28,789 |
 | `core` | 6 | 1,867 | 1,668 |
-| `er` | 32 | 20,436 | 13,770 |
-| `canvas` | 16 | 18,065 | 11,307 |
-| `manage` | 18 | 10,256 | 6,612 |
+| `er` | 32 | 20,436 | 14,156 |
+| `canvas` | 16 | 18,065 | 11,355 |
+| `manage` | 18 | 10,256 | 6,614 |
 
 "Before" is the same tools at commit `bcf4e70`, before slimming. Before the header existed, every client received 45,023 characters whatever it needed. A new tool must be tagged in `internal/tools/toolsets.go`; `TestEveryToolHasOneToolset` fails otherwise.
 

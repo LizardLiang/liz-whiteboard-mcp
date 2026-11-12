@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -17,7 +16,7 @@ var toolGuides = map[string]string{
 		"- Order: tables first (each may carry inline columns), then addColumns (columns for existing tables), then addRelations.\n" +
 		"- Non-atomic: every item is tried on its own. The result splits into created and failed; items that succeeded stay.\n" +
 		"- Relations may name a table or column made in this same batch (sourceTableName, sourceColumnName, targetTableName, targetColumnName) instead of a UUID. Table names must be unique within the batch for this to resolve.\n" +
-		"- Limits: at most 50 tables and 500 addColumns. At least one of tables, addColumns, addRelations must be non-empty.\n" +
+		"- Limits: at most 50 tables, 500 addColumns and 200 addRelations. At least one of tables, addColumns, addRelations must be non-empty.\n" +
 		"- Use list_data_types and list_cardinalities for valid dataType and cardinality values.",
 
 	"create_table_reference": "A reference node shows a table that lives on ANOTHER whiteboard of the same project.\n" +
@@ -80,11 +79,7 @@ func RegisterGuideTools(s *mcp.Server) {
 		Description: "Get the long how-to for one tool (rules, limits, examples). Without a tool name, list the tools that have a guide. Read-only.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, in toolGuideInput) (*mcp.CallToolResult, any, error) {
 		name := strings.TrimSpace(in.Tool)
-		names := make([]string, 0, len(toolGuides))
-		for n := range toolGuides {
-			names = append(names, n)
-		}
-		sort.Strings(names)
+		names := sortedKeys(toolGuides)
 		if name == "" {
 			return text("Tools with a guide: " + strings.Join(names, ", "))
 		}

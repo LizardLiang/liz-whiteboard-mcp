@@ -26,10 +26,19 @@ export class McpClient {
   private sessionId: string | null = null
   private nextId = 1
 
+  private readonly extraHeaders: Record<string, string>
+
   constructor(
     private readonly accessToken: string,
-    private readonly extraHeaders: Record<string, string> = {},
-  ) {}
+    extraHeaders: Record<string, string> = {},
+  ) {
+    this.extraHeaders = { ...extraHeaders }
+  }
+
+  /** Change a request header for the rest of this client's requests (session unchanged). */
+  setHeader(name: string, value: string): void {
+    this.extraHeaders[name] = value
+  }
 
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
@@ -105,8 +114,7 @@ export class McpClient {
   }
 
   async listToolNames(): Promise<Array<string>> {
-    const result = await this.rpc('tools/list', {})
-    return (result.tools as Array<{ name: string }>).map((tool) => tool.name)
+    return (await this.listTools()).map((tool) => tool.name)
   }
 
   async callTool<T = any>(

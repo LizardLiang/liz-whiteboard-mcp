@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"sort"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/schema"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/tools"
 )
 
@@ -63,11 +65,14 @@ func TestParseToolsets(t *testing.T) {
 	assert.Equal(t, "canvas", mustParse(t, "canvas").Key())
 	assert.Equal(t, "canvas,er", mustParse(t, " ER , Canvas, er").Key())
 	assert.Equal(t, "", mustParse(t, "core").Key())
+	assert.Equal(t, "canvas,er,manage", mustParse(t, "core, all").Key())
 
-	_, err := tools.ParseToolsets("canvas,nope")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), `"nope"`)
-	assert.Contains(t, err.Error(), "all, core, er, canvas, manage")
+	for _, bad := range []string{"canvas,nope", "all,nope", "nope,all"} {
+		_, err := tools.ParseToolsets(bad)
+		require.Error(t, err, "header %q", bad)
+		assert.Contains(t, err.Error(), `"nope"`)
+		assert.Contains(t, err.Error(), "all, core, er, canvas, manage")
+	}
 }
 
 func TestToolsetSelection(t *testing.T) {
@@ -114,6 +119,38 @@ func TestGuideTool(t *testing.T) {
 	}
 }
 
+// Instructions and the README name toolsets and core tools by hand; this test
+// fails when either drifts from SelectableToolsets and the core tag.
+func TestDocsNameEveryToolsetAndCoreTool(t *testing.T) {
+	readme, err := os.ReadFile("../../README.md")
+	require.NoError(t, err)
+	for _, doc := range []struct{ name, text string }{{"Instructions", tools.Instructions}, {"README.md", string(readme)}} {
+		for _, ts := range tools.SelectableToolsets {
+			assert.Contains(t, doc.text, string(ts), "%s must name toolset %s", doc.name, ts)
+		}
+		for _, tool := range names(listTools(t, mustParse(t, "core"))) {
+			assert.Contains(t, doc.text, tool, "%s must name core tool %s", doc.name, tool)
+		}
+	}
+}
+
+// create_area has no enum on color in its schema, so the tag must list every
+// palette id, and the validation error must too.
+func TestCreateAreaColorTagListsPalette(t *testing.T) {
+	for _, tl := range listTools(t, mustParse(t, "er")) {
+		if tl.Name != "create_area" {
+			continue
+		}
+		raw, err := json.Marshal(tl.InputSchema)
+		require.NoError(t, err)
+		for _, id := range schema.AreaColors {
+			assert.Contains(t, string(raw), id)
+		}
+		return
+	}
+	t.Fatal("create_area not listed")
+}
+
 func TestInstructionsFitClaudeCodeLimit(t *testing.T) {
 	assert.Less(t, len(tools.Instructions), 4096)
 }
@@ -126,7 +163,7 @@ func TestToolsListBudgets(t *testing.T) {
 		budget int
 	}{
 		{"all", 32000},
-		{"core", 4000},
+		{"core", 2000},
 		{"er", 15000},
 		{"canvas", 14000},
 		{"manage", 8000},

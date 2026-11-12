@@ -493,7 +493,7 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_canvas_element",
-		Description: "Delete one element from a canvas board. A missing or foreign id reports NOT_FOUND.",
+		Description: "Permanently delete one element from a canvas board. A missing or foreign id reports NOT_FOUND.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteCanvasElementInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("elementId", in.ElementID); e != nil {
 			return fail(e)

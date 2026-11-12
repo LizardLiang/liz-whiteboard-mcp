@@ -8,6 +8,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -22,7 +23,7 @@ import (
 type createAreaInput struct {
 	WhiteboardID   string   `json:"whiteboardId"`
 	Name           string   `json:"name"`
-	Color          string   `json:"color"`
+	Color          string   `json:"color" jsonschema:"Palette id: slate, red, orange, amber, green, teal, blue, violet"`
 	PositionX      float64  `json:"positionX"`
 	PositionY      float64  `json:"positionY"`
 	Width          float64  `json:"width"`
@@ -75,7 +76,7 @@ func RegisterAreaTools(s *mcp.Server) {
 func registerCreateArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "create_area",
-		Description: "Create a subject area: a colored region that groups tables.",
+		Description: "Create a subject area: a colored region that groups tables. memberTableIds tables keep their positions; ones with no position are not moved.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createAreaInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("whiteboardId", in.WhiteboardID); e != nil {
 			return fail(e)
@@ -84,7 +85,7 @@ func registerCreateArea(s *mcp.Server) {
 			return fail(e)
 		}
 		if !schema.IsValidAreaColor(in.Color) {
-			return validationError("Invalid enum value.", "color")
+			return validationError("color must be one of: "+strings.Join(schema.AreaColors, ", ")+".", "color")
 		}
 		if e := checkFinite("positionX", in.PositionX); e != nil {
 			return fail(e)
@@ -147,7 +148,7 @@ func registerCreateArea(s *mcp.Server) {
 func registerAddTableToArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "add_table_to_area",
-		Description: "Add a table to an area; the area bounds grow to enclose it. Idempotent.",
+		Description: "Add a table to an area; the area bounds grow to enclose it and the table keeps its position. Idempotent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in areaTableInput) (*mcp.CallToolResult, any, error) {
 		return mutateAreaMembership(ctx, in, true)
 	})
@@ -315,7 +316,7 @@ func computeAreaBoundsForMembers(ctx context.Context, memberTableIDs []string) (
 func registerMoveArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "move_area",
-		Description: "Move an area; every member table shifts by the same delta.",
+		Description: "Move an area; every member table shifts by the same delta. The area bounds stay rigid. A member with no position stays put.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in moveAreaInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("areaId", in.AreaID); e != nil {
 			return fail(e)

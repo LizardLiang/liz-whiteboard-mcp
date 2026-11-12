@@ -29,10 +29,9 @@ import (
 // name ToolCount instead. README.md still must, because a reader cannot follow
 // a Go constant, so this test checks it.
 //
-// When a wave adds tools: register them below, bump tools.ToolCount, and update
-// README.md. Forgetting any one of the three fails here rather than shipping a
-// lie. A new Register* function that is added to main.go but not to this test
-// fails too — the registered count comes up short of the bumped constant.
+// When you add a tool: register it in RegisterAll, tag it in toolToolset
+// (toolsets.go), bump tools.ToolCount, and update README.md. Forgetting any one
+// of them fails here or in toolsets_test.go rather than shipping a lie.
 func TestToolCountMatchesDocumentation(t *testing.T) {
 	ctx := context.Background()
 
