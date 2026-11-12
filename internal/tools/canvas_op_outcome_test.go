@@ -66,6 +66,27 @@ func TestUpdateCanvasElement_LostAckThatLandedIsApplied(t *testing.T) {
 	assert.Contains(t, resultText(t, res), `"positionX":300`)
 }
 
+// A lost ack whose re-read finds the element on another board is not an applied
+// update: the tool was authorized for the caller's board only.
+func TestUpdateCanvasElement_LostAckWithAWrongBoardElementIsUnknown(t *testing.T) {
+	el := rectangleOnBoard()
+	fns := lostCanvasAckFns(&el, func(el **data.CanvasElement, _ string, p map[string]any) {
+		next := **el
+		next.PositionX = p["positionX"].(float64)
+		next.BoardID = "99999999-9999-4999-8999-999999999999"
+		*el = &next
+	})
+	x := 300.0
+
+	res, _, err := updateCanvasElement(context.Background(), fns, updateCanvasElementInput{
+		CanvasBoardID: canvasTestBoardID, ElementID: canvasOpElementID, PositionX: &x,
+	})
+
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	assert.Contains(t, resultText(t, res), "Outcome unknown")
+}
+
 func TestUpdateCanvasElement_LostAckNotLandedIsUnknown(t *testing.T) {
 	el := rectangleOnBoard()
 	fns := lostCanvasAckFns(&el, nil)

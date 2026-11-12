@@ -171,11 +171,7 @@ func registerUpdateRelationship(s *mcp.Server) {
 			payload["label"] = *in.Label
 		}
 
-		ack, err := emitOp(ctx, existing.WhiteboardID, userID, "relationship:update", payload,
-			"update of relationship "+in.RelationshipID,
-			rowCheck(prodERReaders(ctx).relationship, in.RelationshipID, func(r *data.Relationship) bool {
-				return r.WhiteboardID == existing.WhiteboardID && relationshipShowsUpdate(r, in)
-			}))
+		ack, err := emitRelationshipUpdate(prodERWriteFns(ctx, userID), existing.WhiteboardID, payload, in)
 		if err != nil {
 			return fail(err)
 		}
@@ -214,7 +210,7 @@ func registerDeleteRelationship(s *mcp.Server) {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Relationship %s not found.", in.RelationshipID))
 		}
 
-		ack, err := emitDelete(ctx, existing.WhiteboardID, userID, "relationship:delete", map[string]any{"relationshipId": in.RelationshipID},
+		ack, err := emitDelete(prodERWriteFns(ctx, userID), existing.WhiteboardID, "relationship:delete", map[string]any{"relationshipId": in.RelationshipID},
 			"delete of relationship "+in.RelationshipID, deletedCheck(prodERReaders(ctx).relationship, in.RelationshipID))
 		if err != nil {
 			return fail(err)

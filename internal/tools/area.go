@@ -223,11 +223,7 @@ func mutateAreaMembership(ctx context.Context, in areaTableInput, add bool) (*mc
 		payload["height"] = bounds.Height
 	}
 
-	ack, err := emitOp(ctx, areaRecord.WhiteboardID, userID, "area:update", payload,
-		"membership update of area "+in.AreaID,
-		rowCheck(prodERReaders(ctx).area, in.AreaID, func(a *data.Area) bool {
-			return a.WhiteboardID == areaRecord.WhiteboardID && areaShowsMembership(a, nextMembers, bounds)
-		}))
+	ack, err := emitAreaMembership(prodERWriteFns(ctx, userID), areaRecord, payload, nextMembers, bounds)
 	if err != nil {
 		return fail(err)
 	}
@@ -378,12 +374,7 @@ func registerMoveArea(s *mcp.Server) {
 			"members":   members,
 		}
 
-		ack, err := emitOp(ctx, areaRecord.WhiteboardID, userID, "area:move", payload,
-			"move of area "+in.AreaID,
-			rowCheck(prodERReaders(ctx).area, in.AreaID, func(a *data.Area) bool {
-				return a.WhiteboardID == areaRecord.WhiteboardID &&
-					a.PositionX == in.PositionX && a.PositionY == in.PositionY
-			}))
+		ack, err := emitAreaMove(prodERWriteFns(ctx, userID), areaRecord, payload, in.PositionX, in.PositionY)
 		if err != nil {
 			return fail(err)
 		}

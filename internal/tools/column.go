@@ -198,11 +198,7 @@ func registerUpdateColumn(s *mcp.Server) {
 			payload["description"] = *in.Description
 		}
 
-		ack, err := emitOp(ctx, whiteboardID, userID, "column:update", payload,
-			"update of column "+in.ColumnID,
-			rowCheck(prodERReaders(ctx).column, in.ColumnID, func(c *data.Column) bool {
-				return c.TableID == column.TableID && columnShowsUpdate(c, in)
-			}))
+		ack, err := emitColumnUpdate(prodERWriteFns(ctx, userID), whiteboardID, column.TableID, payload, in)
 		if err != nil {
 			return fail(err)
 		}
@@ -245,7 +241,7 @@ func registerDeleteColumn(s *mcp.Server) {
 			return fail(err)
 		}
 
-		ack, err := emitDelete(ctx, whiteboardID, userID, "column:delete", map[string]any{"columnId": in.ColumnID},
+		ack, err := emitDelete(prodERWriteFns(ctx, userID), whiteboardID, "column:delete", map[string]any{"columnId": in.ColumnID},
 			"delete of column "+in.ColumnID, deletedCheck(prodERReaders(ctx).column, in.ColumnID))
 		if err != nil {
 			return fail(err)
@@ -304,7 +300,7 @@ func registerReorderColumns(s *mcp.Server) {
 			return fail(err)
 		}
 
-		ack, err := emitOp(ctx, whiteboardID, userID, "column:reorder", map[string]any{
+		ack, err := emitOp(prodERWriteFns(ctx, userID), whiteboardID, "column:reorder", map[string]any{
 			"tableId":          in.TableID,
 			"orderedColumnIds": in.OrderedColumnIDs,
 		}, "column reorder of table "+in.TableID,

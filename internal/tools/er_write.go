@@ -106,8 +106,8 @@ func createERRow(fns erWriteFns, whiteboardID string, kind erRowKind, scope stri
 // the op applied, the returned ack is ok and carries the re-read entity;
 // otherwise the error is "Outcome unknown". what names the change in that
 // message, e.g. "update of table <id>".
-func emitOp(ctx context.Context, whiteboardID, userID, event string, payload any, what string, check opCheck) (socket.AckResult, error) {
-	ack, err := socket.SocketEmitWithAck(ctx, whiteboardID, userID, event, payload)
+func emitOp(fns erWriteFns, whiteboardID, event string, payload any, what string, check opCheck) (socket.AckResult, error) {
+	ack, err := fns.emit(whiteboardID, event, payload)
 	if err == nil {
 		return ack, nil
 	}
@@ -121,8 +121,8 @@ func emitOp(ctx context.Context, whiteboardID, userID, event string, payload any
 // emitDelete emits one ER delete of a row the tool's pre-read found. It is
 // emitOp, plus resolveDeleteNotFound for the NOT_FOUND a re-sent delete gets
 // when its first send landed.
-func emitDelete(ctx context.Context, whiteboardID, userID, event string, payload any, what string, check opCheck) (socket.AckResult, error) {
-	ack, err := emitOp(ctx, whiteboardID, userID, event, payload, what, check)
+func emitDelete(fns erWriteFns, whiteboardID, event string, payload any, what string, check opCheck) (socket.AckResult, error) {
+	ack, err := emitOp(fns, whiteboardID, event, payload, what, check)
 	if err != nil {
 		return nil, err
 	}
@@ -232,4 +232,58 @@ func areaShowsMembership(a *data.Area, members []string, bounds *area.AreaBounds
 	}
 	return bounds == nil || (a.PositionX == bounds.PositionX && a.PositionY == bounds.PositionY &&
 		a.Width == bounds.Width && a.Height == bounds.Height)
+}
+
+// The emit-then-check body of each ER update and move tool. Each one pins the
+// re-read row to the whiteboard or table the tool's pre-read authorized, so a
+// lost ack never reports an op applied on a row from somewhere else.
+
+// emitTableUpdate emits an update_table metadata change.
+func emitTableUpdate(fns erWriteFns, whiteboardID string, payload map[string]any, in updateTableInput) (socket.AckResult, error) {
+	return emitOp(fns, whiteboardID, "table:update", payload, "update of table "+in.TableID,
+		rowCheck(fns.reads.table, in.TableID, func(t *data.DiagramTable) bool {
+			return t.WhiteboardID == whiteboardID && tableShowsUpdate(t, in)
+		}))
+}
+
+// emitTableMove emits an update_table position change.
+func emitTableMove(fns erWriteFns, whiteboardID, tableID string, x, y float64) (socket.AckResult, error) {
+	payload := map[string]any{"tableId": tableID, "positionX": x, "positionY": y}
+	return emitOp(fns, whiteboardID, "table:move", payload, "move of table "+tableID,
+		rowCheck(fns.reads.table, tableID, func(t *data.DiagramTable) bool {
+			return t.WhiteboardID == whiteboardID && floatMatches(t.PositionX, x) && floatMatches(t.PositionY, y)
+		}))
+}
+
+// emitColumnUpdate emits an update_column change. tableID is the table the
+// pre-read found the column on.
+func emitColumnUpdate(fns erWriteFns, whiteboardID, tableID string, payload map[string]any, in updateColumnInput) (socket.AckResult, error) {
+	return emitOp(fns, whiteboardID, "column:update", payload, "update of column "+in.ColumnID,
+		rowCheck(fns.reads.column, in.ColumnID, func(c *data.Column) bool {
+			return c.TableID == tableID && columnShowsUpdate(c, in)
+		}))
+}
+
+// emitRelationshipUpdate emits an update_relationship change.
+func emitRelationshipUpdate(fns erWriteFns, whiteboardID string, payload map[string]any, in updateRelationshipInput) (socket.AckResult, error) {
+	return emitOp(fns, whiteboardID, "relationship:update", payload, "update of relationship "+in.RelationshipID,
+		rowCheck(fns.reads.relationship, in.RelationshipID, func(r *data.Relationship) bool {
+			return r.WhiteboardID == whiteboardID && relationshipShowsUpdate(r, in)
+		}))
+}
+
+// emitAreaMembership emits an add or remove of one table in an area.
+func emitAreaMembership(fns erWriteFns, areaRecord *data.Area, payload map[string]any, members []string, bounds *area.AreaBounds) (socket.AckResult, error) {
+	return emitOp(fns, areaRecord.WhiteboardID, "area:update", payload, "membership update of area "+areaRecord.ID,
+		rowCheck(fns.reads.area, areaRecord.ID, func(a *data.Area) bool {
+			return a.WhiteboardID == areaRecord.WhiteboardID && areaShowsMembership(a, members, bounds)
+		}))
+}
+
+// emitAreaMove emits a move_area change.
+func emitAreaMove(fns erWriteFns, areaRecord *data.Area, payload map[string]any, x, y float64) (socket.AckResult, error) {
+	return emitOp(fns, areaRecord.WhiteboardID, "area:move", payload, "move of area "+areaRecord.ID,
+		rowCheck(fns.reads.area, areaRecord.ID, func(a *data.Area) bool {
+			return a.WhiteboardID == areaRecord.WhiteboardID && a.PositionX == x && a.PositionY == y
+		}))
 }

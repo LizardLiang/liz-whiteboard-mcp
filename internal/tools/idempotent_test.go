@@ -343,6 +343,11 @@ func TestColumnsShowOrder(t *testing.T) {
 
 	_, applied, _ = columnsShowOrder(read, "t", []string{"b", "a"})()
 	assert.False(t, applied)
+
+	// A column that stores the right order but sits on another table is not a match.
+	cols["b"] = &data.Column{ID: "b", TableID: "other", Order: 1}
+	_, applied, _ = columnsShowOrder(read, "t", []string{"a", "b"})()
+	assert.False(t, applied)
 }
 
 func TestShowsUpdateChecks(t *testing.T) {
