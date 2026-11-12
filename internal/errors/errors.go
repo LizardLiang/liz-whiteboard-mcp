@@ -22,6 +22,9 @@ const (
 	ConnectionError Code = "CONNECTION_ERROR"
 	SessionExpired  Code = "SESSION_EXPIRED"
 	InternalError   Code = "INTERNAL_ERROR"
+	// AlreadyExists: a create named an id some row already has. The app
+	// refuses it and leaves the stored row unchanged.
+	AlreadyExists Code = "ALREADY_EXISTS"
 )
 
 // Well-known error messages (mirror ERROR_MESSAGES in errors.ts).
@@ -136,6 +139,8 @@ func AckCodeToMcpCode(code string) Code {
 		return NotFound
 	case "SESSION_EXPIRED":
 		return SessionExpired
+	case "ALREADY_EXISTS":
+		return AlreadyExists
 	default:
 		return ValidationError
 	}

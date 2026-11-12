@@ -80,6 +80,34 @@ func TestCreateTableReferenceSendsTheWholeRequest(t *testing.T) {
 	assert.NotEmpty(t, authHeader)
 }
 
+// The client id rides in the body when set and is absent when empty, so the
+// app assigns one exactly as before.
+func TestCreateTableReferenceSendsItsIDOnlyWhenSet(t *testing.T) {
+	var bodies []map[string]any
+	serveReferenceAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		var got map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		bodies = append(bodies, got)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"reference": map[string]any{"id": "r1"}})
+	})
+	req := CreateTableReferenceRequest{
+		WhiteboardID: "wb-local", SourceWhiteboardID: "wb-source",
+		SourceTableID: "tbl-1", SourceColumnIDs: []string{"col-1"},
+	}
+
+	_, err := CreateTableReference(context.Background(), "user-1", req)
+	require.NoError(t, err)
+	req.ID = "11111111-1111-4111-8111-111111111111"
+	_, err = CreateTableReference(context.Background(), "user-1", req)
+	require.NoError(t, err)
+
+	require.Len(t, bodies, 2)
+	_, hasID := bodies[0]["id"]
+	assert.False(t, hasID)
+	assert.Equal(t, req.ID, bodies[1]["id"])
+}
+
 func TestUpdateTableReferenceReadsTheDeletedCount(t *testing.T) {
 	serveReferenceAPI(t, referenceEnvelope(map[string]any{
 		"reference":            map[string]any{"id": "r1"},
@@ -185,6 +213,7 @@ func TestReferenceStatusMapping(t *testing.T) {
 		http.StatusUnauthorized:        mcperr.SessionExpired,
 		http.StatusForbidden:           mcperr.Forbidden,
 		http.StatusNotFound:            mcperr.NotFound,
+		http.StatusConflict:            mcperr.AlreadyExists,
 		http.StatusTooManyRequests:     mcperr.ConnectionError,
 		http.StatusInternalServerError: mcperr.ConnectionError,
 	}

@@ -80,6 +80,7 @@ func TestAckCodeToMcpCode(t *testing.T) {
 	assert.Equal(t, Forbidden, AckCodeToMcpCode("FORBIDDEN"))
 	assert.Equal(t, NotFound, AckCodeToMcpCode("NOT_FOUND"))
 	assert.Equal(t, SessionExpired, AckCodeToMcpCode("SESSION_EXPIRED"))
+	assert.Equal(t, AlreadyExists, AckCodeToMcpCode("ALREADY_EXISTS"))
 	assert.Equal(t, ValidationError, AckCodeToMcpCode("anything-else"))
 }
 

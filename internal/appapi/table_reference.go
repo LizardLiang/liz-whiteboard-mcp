@@ -53,6 +53,10 @@ const (
 // CreateTableReferenceRequest places a reference to a table in another
 // whiteboard of the SAME project.
 type CreateTableReferenceRequest struct {
+	// ID is the client-generated id the node is stored under. The app refuses
+	// an id any table already has (409 ALREADY_EXISTS). Empty lets the app
+	// assign one.
+	ID string
 	// WhiteboardID is the board the reference node is placed on.
 	WhiteboardID string
 	// SourceWhiteboardID is the board that owns the referenced table.
@@ -95,6 +99,9 @@ func CreateTableReference(ctx context.Context, userID string, req CreateTableRef
 		"sourceWhiteboardId": req.SourceWhiteboardID,
 		"sourceTableId":      req.SourceTableID,
 		"sourceColumnIds":    req.SourceColumnIDs,
+	}
+	if req.ID != "" {
+		body["id"] = req.ID
 	}
 	if req.PositionX != nil {
 		body["positionX"] = *req.PositionX
@@ -288,6 +295,9 @@ func referenceStatusError(resp *http.Response, url, notFoundMessage, forbiddenMe
 				"Check that MCP_CLIENT_SECRET, OAUTH_ISSUER, and COLLAB_RESOURCE_URI match the app's values.")
 	case http.StatusForbidden:
 		return mcperr.New(mcperr.Forbidden, forbiddenMessage)
+	case http.StatusConflict:
+		return mcperr.New(mcperr.AlreadyExists,
+			"The liz-whiteboard app refused the create: a table with this id already exists.")
 	case http.StatusNotFound:
 		if notFoundMessage == "" {
 			return mcperr.New(mcperr.ConnectionError,
