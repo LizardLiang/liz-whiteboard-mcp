@@ -183,12 +183,7 @@ func main() {
 		bearerOpts.ResourceMetadataURL = u.Scheme + "://" + u.Host + prmPath
 	}
 
-	httpServer := &http.Server{
-		Addr:         listenAddr,
-		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 150 * time.Second, // board images render up to 13 pages in one call
-	}
+	httpServer := newHTTPServer(listenAddr, mux)
 
 	// Graceful shutdown on SIGINT/SIGTERM: close sockets, drain HTTP (so in-flight
 	// handlers can finish), then close DB. DB must close last — handlers call db.Pool().
