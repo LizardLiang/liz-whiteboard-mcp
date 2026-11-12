@@ -14,27 +14,27 @@ import (
 )
 
 type createRelationshipInput struct {
-	WhiteboardID   string  `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	SourceTableID  string  `json:"sourceTableId" jsonschema:"Source table UUID"`
-	TargetTableID  string  `json:"targetTableId" jsonschema:"Target table UUID"`
-	SourceColumnID string  `json:"sourceColumnId" jsonschema:"Source column UUID"`
-	TargetColumnID string  `json:"targetColumnId" jsonschema:"Target column UUID"`
-	Cardinality    string  `json:"cardinality" jsonschema:"Relationship cardinality"`
-	Label          *string `json:"label,omitempty" jsonschema:"Optional label"`
+	WhiteboardID   string  `json:"whiteboardId"`
+	SourceTableID  string  `json:"sourceTableId"`
+	TargetTableID  string  `json:"targetTableId"`
+	SourceColumnID string  `json:"sourceColumnId"`
+	TargetColumnID string  `json:"targetColumnId"`
+	Cardinality    string  `json:"cardinality"`
+	Label          *string `json:"label,omitempty"`
 }
 
 type updateRelationshipInput struct {
-	RelationshipID string  `json:"relationshipId" jsonschema:"The relationship UUID"`
-	SourceTableID  *string `json:"sourceTableId,omitempty" jsonschema:"New source table UUID"`
-	TargetTableID  *string `json:"targetTableId,omitempty" jsonschema:"New target table UUID"`
-	SourceColumnID *string `json:"sourceColumnId,omitempty" jsonschema:"New source column UUID"`
-	TargetColumnID *string `json:"targetColumnId,omitempty" jsonschema:"New target column UUID"`
-	Cardinality    *string `json:"cardinality,omitempty" jsonschema:"New cardinality"`
-	Label          *string `json:"label,omitempty" jsonschema:"New label"`
+	RelationshipID string  `json:"relationshipId"`
+	SourceTableID  *string `json:"sourceTableId,omitempty"`
+	TargetTableID  *string `json:"targetTableId,omitempty"`
+	SourceColumnID *string `json:"sourceColumnId,omitempty"`
+	TargetColumnID *string `json:"targetColumnId,omitempty"`
+	Cardinality    *string `json:"cardinality,omitempty"`
+	Label          *string `json:"label,omitempty"`
 }
 
 type relationshipIDInput struct {
-	RelationshipID string `json:"relationshipId" jsonschema:"The relationship UUID"`
+	RelationshipID string `json:"relationshipId"`
 }
 
 // RegisterRelationshipTools registers create_relationship, update_relationship,
@@ -48,7 +48,7 @@ func RegisterRelationshipTools(s *mcp.Server) {
 func registerCreateRelationship(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "create_relationship",
-		Description: "Create a relationship between two tables.",
+		Description: "Create a relationship between two tables' columns.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createRelationshipInput) (*mcp.CallToolResult, any, error) {
 		for field, val := range map[string]string{
 			"whiteboardId":   in.WhiteboardID,
@@ -107,9 +107,8 @@ func registerCreateRelationship(s *mcp.Server) {
 
 func registerUpdateRelationship(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_relationship",
-		Description: "Update a relationship's cardinality, label, or endpoints. " +
-			"The server validates referential integrity on all endpoint changes.",
+		Name:        "update_relationship",
+		Description: "Update a relationship's cardinality, label, or endpoints.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateRelationshipInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("relationshipId", in.RelationshipID); e != nil {
 			return fail(e)
@@ -190,7 +189,7 @@ func registerUpdateRelationship(s *mcp.Server) {
 func registerDeleteRelationship(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_relationship",
-		Description: "Delete a relationship by ID.",
+		Description: "Delete a relationship by id.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in relationshipIDInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("relationshipId", in.RelationshipID); e != nil {
 			return fail(e)

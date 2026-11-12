@@ -60,42 +60,42 @@ const (
 // means style is written WHOLE, not merged: a style naming only fill resets the
 // other keys to the engine's defaults.
 type canvasStyleInput struct {
-	Fill          *string  `json:"fill,omitempty" jsonschema:"Fill color, any CSS color string"`
-	Stroke        *string  `json:"stroke,omitempty" jsonschema:"Stroke color, any CSS color string"`
-	StrokeWidth   *float64 `json:"strokeWidth,omitempty" jsonschema:"Stroke width, 0-64"`
-	FontSize      *float64 `json:"fontSize,omitempty" jsonschema:"Font size, 1-512"`
-	Color         *string  `json:"color,omitempty" jsonschema:"Text color, any CSS color string"`
-	CornerRadius  *float64 `json:"cornerRadius,omitempty" jsonschema:"Corner rounding in world units, 0-512"`
-	TextAlign     *string  `json:"textAlign,omitempty" jsonschema:"Horizontal text alignment: left, center, or right"`
-	VerticalAlign *string  `json:"verticalAlign,omitempty" jsonschema:"Vertical text alignment: top, middle, or bottom"`
+	Fill          *string  `json:"fill,omitempty"`
+	Stroke        *string  `json:"stroke,omitempty"`
+	StrokeWidth   *float64 `json:"strokeWidth,omitempty" jsonschema:"0-64"`
+	FontSize      *float64 `json:"fontSize,omitempty" jsonschema:"1-512"`
+	Color         *string  `json:"color,omitempty"`
+	CornerRadius  *float64 `json:"cornerRadius,omitempty" jsonschema:"0-512"`
+	TextAlign     *string  `json:"textAlign,omitempty"`
+	VerticalAlign *string  `json:"verticalAlign,omitempty"`
 }
 
 type createCanvasElementInput struct {
-	CanvasBoardID string            `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	Kind          string            `json:"kind" jsonschema:"Element kind: rectangle, ellipse, diamond, triangle, or text"`
-	PositionX     float64           `json:"positionX" jsonschema:"X position of the element's top-left corner in board coordinates"`
-	PositionY     float64           `json:"positionY" jsonschema:"Y position of the element's top-left corner in board coordinates"`
-	Width         float64           `json:"width" jsonschema:"Element width, greater than 0 and at most 100000"`
-	Height        float64           `json:"height" jsonschema:"Element height, greater than 0 and at most 100000"`
-	Text          *string           `json:"text,omitempty" jsonschema:"Label text drawn inside the element, at most 10000 characters"`
-	Style         *canvasStyleInput `json:"style,omitempty" jsonschema:"Appearance; omitted keys fall back to the engine defaults"`
+	CanvasBoardID string            `json:"canvasBoardId"`
+	Kind          string            `json:"kind"`
+	PositionX     float64           `json:"positionX"`
+	PositionY     float64           `json:"positionY"`
+	Width         float64           `json:"width" jsonschema:"Greater than 0, at most 100000"`
+	Height        float64           `json:"height" jsonschema:"Greater than 0, at most 100000"`
+	Text          *string           `json:"text,omitempty" jsonschema:"At most 10000 characters"`
+	Style         *canvasStyleInput `json:"style,omitempty" jsonschema:"Omitted keys use defaults"`
 }
 
 type updateCanvasElementInput struct {
-	CanvasBoardID string            `json:"canvasBoardId" jsonschema:"The canvas board UUID the element belongs to"`
-	ElementID     string            `json:"elementId" jsonschema:"The canvas element UUID"`
-	PositionX     *float64          `json:"positionX,omitempty" jsonschema:"New X position in board coordinates"`
-	PositionY     *float64          `json:"positionY,omitempty" jsonschema:"New Y position in board coordinates"`
-	Width         *float64          `json:"width,omitempty" jsonschema:"New width, greater than 0 and at most 100000"`
-	Height        *float64          `json:"height,omitempty" jsonschema:"New height, greater than 0 and at most 100000"`
-	ZIndex        *int              `json:"zIndex,omitempty" jsonschema:"New paint order, -1000000 to 1000000; higher draws on top"`
-	Text          *string           `json:"text,omitempty" jsonschema:"New label text, at most 10000 characters; pass an empty string to clear it"`
-	Style         *canvasStyleInput `json:"style,omitempty" jsonschema:"Replacement appearance; omitted keys reset to the engine defaults"`
+	CanvasBoardID string            `json:"canvasBoardId"`
+	ElementID     string            `json:"elementId"`
+	PositionX     *float64          `json:"positionX,omitempty"`
+	PositionY     *float64          `json:"positionY,omitempty"`
+	Width         *float64          `json:"width,omitempty" jsonschema:"Greater than 0, at most 100000"`
+	Height        *float64          `json:"height,omitempty" jsonschema:"Greater than 0, at most 100000"`
+	ZIndex        *int              `json:"zIndex,omitempty" jsonschema:"Paint order, -1000000 to 1000000; higher on top"`
+	Text          *string           `json:"text,omitempty" jsonschema:"At most 10000 characters; empty string clears"`
+	Style         *canvasStyleInput `json:"style,omitempty" jsonschema:"Replaces the whole style; omitted keys reset"`
 }
 
 type deleteCanvasElementInput struct {
-	CanvasBoardID string `json:"canvasBoardId" jsonschema:"The canvas board UUID the element belongs to"`
-	ElementID     string `json:"elementId" jsonschema:"The canvas element UUID"`
+	CanvasBoardID string `json:"canvasBoardId"`
+	ElementID     string `json:"elementId"`
 }
 
 // canvasEditFns is the injectable write gate, mirroring canvasBoardLoaderFns in
@@ -452,12 +452,8 @@ func emitCanvasElementEventAs(
 // update_canvas_element, and delete_canvas_element.
 func RegisterCanvasWriteTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_canvas_element",
-		Description: "Create a shape or text element on a canvas board (freeform FigJam-style board, " +
-			"NOT an ER diagram whiteboard). kind is rectangle, ellipse, diamond, triangle, or text. " +
-			"The new element is placed on top of the board automatically. " +
-			"Use create_canvas_connector to draw a line between elements. " +
-			"For a grid table use create_canvas_table. For ER diagram tables use create_table instead.",
+		Name:        "create_canvas_element",
+		Description: "Create a shape or text element (rectangle, ellipse, diamond, triangle, text) on a canvas board. Lines: create_canvas_connector. Grids: create_canvas_table. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasElementInput) (*mcp.CallToolResult, any, error) {
 		payload, e := buildCanvasElementCreatePayload(in)
 		if e != nil {
@@ -484,12 +480,8 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_canvas_element",
-		Description: "Move, resize, restyle, re-label, or restack one canvas element (freeform " +
-			"FigJam-style board, NOT an ER diagram whiteboard). Supply canvasBoardId, elementId, " +
-			"and at least one field to change. zIndex sets paint order: a higher value draws on top. " +
-			"style is written whole — omitted style keys reset to the engine defaults. " +
-			"For a table, width and height are ignored; use edit_canvas_table to change its grid.",
+		Name:        "update_canvas_element",
+		Description: "Move, resize, restyle, re-label, or restack one canvas element. Needs at least one field. style replaces the whole style. Tables: use edit_canvas_table for the grid. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateCanvasElementInput) (*mcp.CallToolResult, any, error) {
 		payload, e := buildCanvasElementUpdatePayload(in)
 		if e != nil {
@@ -500,11 +492,8 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_canvas_element",
-		Description: "Delete one element from a canvas board (freeform FigJam-style board, NOT an " +
-			"ER diagram whiteboard). Deletion is permanent from this tool's side. " +
-			"An element id that does not exist, or that belongs to a different board, " +
-			"both report NOT_FOUND.",
+		Name:        "delete_canvas_element",
+		Description: "Delete one element from a canvas board. A missing or foreign id reports NOT_FOUND.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteCanvasElementInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("elementId", in.ElementID); e != nil {
 			return fail(e)

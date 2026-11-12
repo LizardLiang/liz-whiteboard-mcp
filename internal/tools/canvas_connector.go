@@ -47,29 +47,29 @@ const canvasCurvatureLimit = 2.0
 // canvasPointInput is a free connector end's own board coordinate. Mirrors
 // canvasConnectorPointSchema: both components are ordinary board coordinates.
 type canvasPointInput struct {
-	X float64 `json:"x" jsonschema:"X coordinate in board coordinates"`
-	Y float64 `json:"y" jsonschema:"Y coordinate in board coordinates"`
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type createCanvasConnectorInput struct {
-	CanvasBoardID   string            `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	SourceElementID *string           `json:"sourceElementId,omitempty" jsonschema:"UUID of the element the line starts at; supply this OR sourcePoint, never both"`
-	SourcePoint     *canvasPointInput `json:"sourcePoint,omitempty" jsonschema:"Free board coordinate the line starts at; supply this OR sourceElementId, never both"`
-	TargetElementID *string           `json:"targetElementId,omitempty" jsonschema:"UUID of the element the line ends at; supply this OR targetPoint, never both"`
-	TargetPoint     *canvasPointInput `json:"targetPoint,omitempty" jsonschema:"Free board coordinate the line ends at; supply this OR targetElementId, never both"`
-	Routing         string            `json:"routing" jsonschema:"How the line is drawn: straight, elbow, or curved"`
-	Curvature       *float64          `json:"curvature,omitempty" jsonschema:"Optional hand-applied bow, -2 to 2, as a signed fraction of the straight chord; omit for an unbowed line"`
+	CanvasBoardID   string            `json:"canvasBoardId"`
+	SourceElementID *string           `json:"sourceElementId,omitempty" jsonschema:"Start element; this OR sourcePoint"`
+	SourcePoint     *canvasPointInput `json:"sourcePoint,omitempty" jsonschema:"Start point; this OR sourceElementId"`
+	TargetElementID *string           `json:"targetElementId,omitempty" jsonschema:"End element; this OR targetPoint"`
+	TargetPoint     *canvasPointInput `json:"targetPoint,omitempty" jsonschema:"End point; this OR targetElementId"`
+	Routing         string            `json:"routing" jsonschema:"straight, elbow, or curved"`
+	Curvature       *float64          `json:"curvature,omitempty" jsonschema:"Bow, -2 to 2; omit for none"`
 }
 
 type updateCanvasConnectorInput struct {
-	CanvasBoardID   string            `json:"canvasBoardId" jsonschema:"The canvas board UUID the connector belongs to"`
+	CanvasBoardID   string            `json:"canvasBoardId"`
 	ElementID       string            `json:"elementId" jsonschema:"The connector element UUID"`
-	Routing         *string           `json:"routing,omitempty" jsonschema:"New line style: straight, elbow, or curved"`
-	SourceElementID *string           `json:"sourceElementId,omitempty" jsonschema:"Re-attach the start of the line to this element; supply this OR sourcePoint, never both"`
-	SourcePoint     *canvasPointInput `json:"sourcePoint,omitempty" jsonschema:"Detach the start of the line to this free board coordinate; supply this OR sourceElementId, never both"`
-	TargetElementID *string           `json:"targetElementId,omitempty" jsonschema:"Re-attach the end of the line to this element; supply this OR targetPoint, never both"`
-	TargetPoint     *canvasPointInput `json:"targetPoint,omitempty" jsonschema:"Detach the end of the line to this free board coordinate; supply this OR targetElementId, never both"`
-	Curvature       *float64          `json:"curvature,omitempty" jsonschema:"New hand-applied bow, -2 to 2; 0 straightens the line"`
+	Routing         *string           `json:"routing,omitempty" jsonschema:"straight, elbow, or curved"`
+	SourceElementID *string           `json:"sourceElementId,omitempty" jsonschema:"New start element; this OR sourcePoint"`
+	SourcePoint     *canvasPointInput `json:"sourcePoint,omitempty" jsonschema:"New start point; this OR sourceElementId"`
+	TargetElementID *string           `json:"targetElementId,omitempty" jsonschema:"New end element; this OR targetPoint"`
+	TargetPoint     *canvasPointInput `json:"targetPoint,omitempty" jsonschema:"New end point; this OR targetElementId"`
+	Curvature       *float64          `json:"curvature,omitempty" jsonschema:"Bow, -2 to 2; 0 straightens"`
 }
 
 // canvasConnectorFns is the injectable dependency set, mirroring canvasEditFns
@@ -530,26 +530,15 @@ func updateCanvasConnector(
 // update_canvas_connector.
 func RegisterCanvasConnectorTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_canvas_connector",
-		Description: "Draw a connector line on a canvas board (freeform FigJam-style board, NOT an " +
-			"ER diagram whiteboard). Each end is EITHER attached to an element (sourceElementId / " +
-			"targetElementId) OR pinned to a free board coordinate (sourcePoint / targetPoint) — " +
-			"supply exactly one form per end. A connector cannot join an element to itself. " +
-			"routing is straight, elbow, or curved. The line's path is derived from its endpoints " +
-			"live, so it follows the elements when they move. " +
-			"For ER diagram foreign keys use create_relationship instead.",
+		Name:        "create_canvas_connector",
+		Description: "Draw a connector line on a canvas board. Each end is attached to an element or pinned to a point, never both; no self-loops. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasConnectorInput) (*mcp.CallToolResult, any, error) {
 		return createCanvasConnector(ctx, prodCanvasConnectorFns(), in)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_canvas_connector",
-		Description: "Re-route, re-bow, or move either end of an existing canvas connector (freeform " +
-			"FigJam-style board, NOT an ER diagram whiteboard). Supply canvasBoardId, elementId, and " +
-			"at least one of routing, curvature, sourceElementId, sourcePoint, targetElementId, or " +
-			"targetPoint. Naming one end replaces that end and leaves the other alone; every " +
-			"property you do not name — including the border attachment points set in the app — is " +
-			"preserved. Use update_canvas_element to move, resize or restyle a shape.",
+		Name:        "update_canvas_connector",
+		Description: "Re-route or re-attach an existing canvas connector. Naming one end replaces it; everything not named is kept. Needs at least one field.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateCanvasConnectorInput) (*mcp.CallToolResult, any, error) {
 		return updateCanvasConnector(ctx, prodCanvasConnectorFns(), in)
 	})

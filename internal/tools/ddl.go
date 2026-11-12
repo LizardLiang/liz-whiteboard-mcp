@@ -14,16 +14,15 @@ import (
 )
 
 type getTableDDLInput struct {
-	TableID string  `json:"tableId" jsonschema:"The table UUID"`
-	Dialect *string `json:"dialect,omitempty" jsonschema:"SQL dialect: \"postgres\" | \"mysql\" | \"mssql\" (default \"postgres\")"`
+	TableID string  `json:"tableId"`
+	Dialect *string `json:"dialect,omitempty" jsonschema:"postgres (default), mysql, or mssql"`
 }
 
 // RegisterDDLTools registers get_table_ddl.
 func RegisterDDLTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_table_ddl",
-		Description: "Get a CREATE TABLE SQL statement for a single table, including its columns and " +
-			"outgoing foreign-key relationships. Supported dialects: postgres (default), mysql, mssql. Read-only.",
+		Name:        "get_table_ddl",
+		Description: "Get CREATE TABLE SQL for one table with its outgoing foreign keys. Read-only.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getTableDDLInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("tableId", in.TableID); e != nil {
 			return fail(e)

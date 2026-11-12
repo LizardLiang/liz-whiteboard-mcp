@@ -13,7 +13,7 @@ import (
 )
 
 type whiteboardIDInput struct {
-	WhiteboardID string `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
+	WhiteboardID string `json:"whiteboardId"`
 }
 
 // loadAuthorizedBoard runs the shared read-path: UUID validation,
@@ -51,7 +51,7 @@ func loadAuthorizedBoard(ctx context.Context, whiteboardID string) (*data.Whiteb
 func RegisterReadTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "get_board",
-		Description: "Get the full ER diagram state for a whiteboard (tables, columns, relationships).",
+		Description: "Get the full ER state of a whiteboard: tables, columns, relationships, with UUIDs. Large; read get_schema_summary first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in whiteboardIDInput) (*mcp.CallToolResult, any, error) {
 		board, err := loadAuthorizedBoard(ctx, in.WhiteboardID)
 		if err != nil {
@@ -61,9 +61,8 @@ func RegisterReadTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_schema_summary",
-		Description: "Get a compact text summary of the ER schema for a whiteboard. " +
-			"Omits UUIDs and positions. Suitable for feeding into AI prompts.",
+		Name:        "get_schema_summary",
+		Description: "Get a compact text summary of a whiteboard's ER schema, without UUIDs or positions. Read it before get_board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in whiteboardIDInput) (*mcp.CallToolResult, any, error) {
 		board, err := loadAuthorizedBoard(ctx, in.WhiteboardID)
 		if err != nil {

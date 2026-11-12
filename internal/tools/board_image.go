@@ -33,16 +33,16 @@ type boardImageArgs struct {
 }
 
 type whiteboardImageInput struct {
-	WhiteboardID string   `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	Mode         *string  `json:"mode,omitempty" jsonschema:"Framing: fit (default, whole board in one image) or tiles (several images at readable zoom, at most 12)"`
-	FocusIDs     []string `json:"focusIds,omitempty" jsonschema:"Up to 50 table, area, or shape UUIDs to frame instead of the whole board; only with mode fit"`
+	WhiteboardID string   `json:"whiteboardId"`
+	Mode         *string  `json:"mode,omitempty" jsonschema:"fit (default) or tiles"`
+	FocusIDs     []string `json:"focusIds,omitempty" jsonschema:"Up to 50 ids to frame; mode fit only"`
 	Theme        *string  `json:"theme,omitempty" jsonschema:"light (default) or dark"`
 }
 
 type canvasBoardImageInput struct {
-	CanvasBoardID string   `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	Mode          *string  `json:"mode,omitempty" jsonschema:"Framing: fit (default, whole board in one image) or tiles (several images at readable zoom, at most 12)"`
-	FocusIDs      []string `json:"focusIds,omitempty" jsonschema:"Up to 50 canvas element UUIDs to frame instead of the whole board; only with mode fit"`
+	CanvasBoardID string   `json:"canvasBoardId"`
+	Mode          *string  `json:"mode,omitempty" jsonschema:"fit (default) or tiles"`
+	FocusIDs      []string `json:"focusIds,omitempty" jsonschema:"Up to 50 ids to frame; mode fit only"`
 	Theme         *string  `json:"theme,omitempty" jsonschema:"light (default) or dark"`
 }
 
@@ -196,11 +196,8 @@ func RegisterBoardImageTools(s *mcp.Server) {
 
 func registerBoardImageToolsWith(s *mcp.Server, wb, cv boardImageDeps) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_board_image",
-		Description: "See an ER whiteboard as a PNG image (tables, columns, relationships, areas as a person sees them). " +
-			"mode fit (default) returns the whole board in one image; focusIds frames only those tables, areas, or shapes. " +
-			"mode tiles returns several readable-zoom images (at most 12). Each image is 1568x1568 px; a text block after it " +
-			"gives the board-coordinate rectangle it shows. Use get_board for the data itself.",
+		Name:        "get_board_image",
+		Description: "Render an ER whiteboard as PNG image(s): mode fit (default, whole board) or tiles (up to 12). Text blocks give each image's board rectangle. Data: get_board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in whiteboardImageInput) (*mcp.CallToolResult, any, error) {
 		return runBoardImage(ctx, wb, appapi.RenderKindWhiteboard, "whiteboardId", in.WhiteboardID,
 			fmt.Sprintf("Whiteboard %s not found.", in.WhiteboardID),
@@ -208,11 +205,8 @@ func registerBoardImageToolsWith(s *mcp.Server, wb, cv boardImageDeps) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_canvas_board_image",
-		Description: "See a canvas board (freeform shapes, text, connectors; NOT an ER whiteboard) as a PNG image. " +
-			"mode fit (default) returns the whole board in one image; focusIds frames only those elements. " +
-			"mode tiles returns several readable-zoom images (at most 12). Each image is 1568x1568 px; a text block after it " +
-			"gives the board-coordinate rectangle it shows. Use get_canvas_board for the data itself.",
+		Name:        "get_canvas_board_image",
+		Description: "Render a canvas board as PNG image(s): mode fit (default, whole board) or tiles (up to 12). Text blocks give each image's board rectangle. Data: get_canvas_board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in canvasBoardImageInput) (*mcp.CallToolResult, any, error) {
 		return runBoardImage(ctx, cv, appapi.RenderKindCanvas, "canvasBoardId", in.CanvasBoardID,
 			fmt.Sprintf("Canvas board %s not found.", in.CanvasBoardID),

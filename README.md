@@ -16,7 +16,8 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 ## Table of contents
 
 - [What it does](#what-it-does)
-- [The 53 MCP tools](#the-53-mcp-tools)
+- [The 54 MCP tools](#the-54-mcp-tools)
+- [Toolsets and token cost](#toolsets-and-token-cost)
 - [How it works](#how-it-works)
 - [How to install & run](#how-to-install--run)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
@@ -40,11 +41,12 @@ Exposes the liz-whiteboard ER diagram as **MCP tools** so an LLM agent can:
 
 Reads go straight to the app's SQLite database; writes are sent to the live collaboration server over Socket.IO and broadcast to every connected user in real time. Every request is scoped to the authenticated user (project-membership checks).
 
-## The 53 MCP tools
+## The 54 MCP tools
 
 | Group | Tools |
 |---|---|
 | Discovery | `list_projects`, `list_whiteboards`, `list_folders`, `get_project_tree` |
+| Help | `get_tool_guide` |
 | Read | `get_board`, `get_schema_summary`, `get_table_ddl` |
 | Tables | `create_table`, `update_table`, `delete_table` |
 | Columns | `create_column`, `update_column`, `delete_column`, `reorder_columns` |
@@ -83,6 +85,35 @@ Access needs the VIEWER role. The server asks the app for a render token (`POST 
 | `LIZ_RENDER_CDP_URL` | DevTools address of the renderer (default `http://localhost:9222`; compose: `http://renderer:9222`). The server resolves the host to an IP, because headless Chromium rejects non-IP, non-localhost `Host` headers. |
 | `LIZ_RENDER_APP_URL` | Origin the **renderer** uses to reach the app (default `http://localhost:3000`; compose: `http://liz-app:3000`; avoid the bare name `app`, which Chromium upgrades to HTTPS because `.app` is an HSTS-preloaded TLD). |
 | `LIZ_RENDER_TOKEN_URL` | App route that mints render tokens (default `http://localhost:3000/api/render-token`; compose: `http://app:3000/api/render-token`). |
+
+### Toolsets and token cost
+
+Every session receives the tool list before it does any work, so the list is the fixed cost of a connection. Two measures keep it small.
+
+**Pick toolsets with a header.** Send `X-Liz-Toolsets` on the MCP requests. The value is a comma list of `er`, `canvas`, `manage`, or `all`. No header, an empty value, or `all` gives every tool, so existing client configs keep working. The choice is fixed when the session starts. An unknown name returns HTTP 400 and lists the valid names. The URL does not change, so the OAuth audience is the same.
+
+| Toolset | Tools |
+|---|---|
+| `core` (always on) | `list_projects`, `get_project_tree`, `list_folders`, `list_whiteboards`, `list_canvas_boards`, `get_tool_guide` |
+| `er` | ER whiteboard reads and writes: tables, columns, relationships, positions, areas, references, DDL, `batch_schema_update`, `get_board_image` |
+| `canvas` | `get_canvas_board`, `get_canvas_summary`, elements, connectors, canvas tables, `get_canvas_board_image` |
+| `manage` | create, update and delete for projects, folders, whiteboards and canvas boards |
+
+Claude Desktop custom connectors cannot set headers, so Desktop always gets all tools. A proxy that strips the header also gives all tools.
+
+**Short descriptions, long guides on demand.** Tool descriptions state what the tool does. The long rules live in `get_tool_guide {tool}`. The server `instructions` tell the agent to read `get_schema_summary` or `get_canvas_summary` before the full board reads.
+
+Size of `tools/list` (JSON characters; `TestToolsListBudgets` pins the limits):
+
+| Header | Tools | Before | After |
+|---|---|---|---|
+| none or `all` | 54 | 45,023 | 28,353 |
+| `core` | 6 | 1,867 | 1,668 |
+| `er` | 32 | 20,436 | 13,770 |
+| `canvas` | 16 | 18,065 | 11,307 |
+| `manage` | 18 | 10,256 | 6,612 |
+
+"Before" is the same tools at commit `bcf4e70`, before slimming. Before the header existed, every client received 45,023 characters whatever it needed. A new tool must be tagged in `internal/tools/toolsets.go`; `TestEveryToolHasOneToolset` fails otherwise.
 
 ### Cross-file table references
 

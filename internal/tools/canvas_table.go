@@ -153,14 +153,14 @@ func emitCreateWithID(
 // ---------------------------------------------------------------------------
 
 type createCanvasTableInput struct {
-	CanvasBoardID string     `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	PositionX     float64    `json:"positionX" jsonschema:"X position of the table's top-left corner in board coordinates"`
-	PositionY     float64    `json:"positionY" jsonschema:"Y position of the table's top-left corner in board coordinates"`
-	Rows          int        `json:"rows" jsonschema:"Number of rows, at least 1; rows times columns is at most 500"`
-	Columns       int        `json:"columns" jsonschema:"Number of columns, at least 1; rows times columns is at most 500"`
-	Cells         [][]string `json:"cells,omitempty" jsonschema:"Starting cell text, row-major: cells[row][column]. May be shorter than the grid, never longer. Each text is at most 5000 characters"`
-	HeaderRow     *bool      `json:"headerRow,omitempty" jsonschema:"Draw the first row as a bold header; defaults to true"`
-	ColumnWidths  []float64  `json:"columnWidths,omitempty" jsonschema:"Width of each column, at least 40; one entry per column. Defaults to 120 each"`
+	CanvasBoardID string     `json:"canvasBoardId"`
+	PositionX     float64    `json:"positionX"`
+	PositionY     float64    `json:"positionY"`
+	Rows          int        `json:"rows" jsonschema:"At least 1; rows x columns at most 500"`
+	Columns       int        `json:"columns" jsonschema:"At least 1; rows x columns at most 500"`
+	Cells         [][]string `json:"cells,omitempty" jsonschema:"Row-major cells[row][column]; may be shorter than the grid; each at most 5000 characters"`
+	HeaderRow     *bool      `json:"headerRow,omitempty" jsonschema:"Default true"`
+	ColumnWidths  []float64  `json:"columnWidths,omitempty" jsonschema:"One per column, at least 40; default 120"`
 }
 
 // tableStyleForCreate is the style the browser sends for a new table
@@ -355,13 +355,8 @@ func createCanvasTable(
 // RegisterCanvasTableTools registers create_canvas_table and edit_canvas_table.
 func RegisterCanvasTableTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_canvas_table",
-		Description: "Create a grid table on a canvas board (freeform FigJam-style board, NOT an ER " +
-			"diagram whiteboard). Give rows and columns (at most 500 cells in all) and optionally " +
-			"cells, the starting text as a row-major list of lists. The first row is a header unless " +
-			"headerRow is false. Rows grow to fit their text. Returns the element plus rowIds and " +
-			"columnIds in order. Change a table afterwards with edit_canvas_table. " +
-			"For ER diagram tables use create_table instead.",
+		Name:        "create_canvas_table",
+		Description: "Create a grid table on a canvas board: rows, columns (rows x columns at most 500), optional row-major cells and a header row. Returns rowIds and columnIds. Change it with edit_canvas_table. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasTableInput) (*mcp.CallToolResult, any, error) {
 		return createCanvasTable(ctx, prodCanvasTableFns(), in)
 	})

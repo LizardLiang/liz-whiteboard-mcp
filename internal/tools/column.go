@@ -15,35 +15,35 @@ import (
 )
 
 type createColumnInput struct {
-	TableID      string  `json:"tableId" jsonschema:"The table UUID"`
-	Name         string  `json:"name" jsonschema:"Column name"`
-	DataType     string  `json:"dataType" jsonschema:"Column data type"`
-	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty" jsonschema:"Is primary key"`
-	IsForeignKey *bool   `json:"isForeignKey,omitempty" jsonschema:"Is foreign key"`
-	IsUnique     *bool   `json:"isUnique,omitempty" jsonschema:"Is unique"`
-	IsNullable   *bool   `json:"isNullable,omitempty" jsonschema:"Is nullable"`
-	Description  *string `json:"description,omitempty" jsonschema:"Optional description"`
-	Order        *int    `json:"order,omitempty" jsonschema:"Column order position"`
+	TableID      string  `json:"tableId"`
+	Name         string  `json:"name"`
+	DataType     string  `json:"dataType"`
+	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty"`
+	IsForeignKey *bool   `json:"isForeignKey,omitempty"`
+	IsUnique     *bool   `json:"isUnique,omitempty"`
+	IsNullable   *bool   `json:"isNullable,omitempty"`
+	Description  *string `json:"description,omitempty"`
+	Order        *int    `json:"order,omitempty"`
 }
 
 type updateColumnInput struct {
-	ColumnID     string  `json:"columnId" jsonschema:"The column UUID"`
-	Name         *string `json:"name,omitempty" jsonschema:"New name"`
-	DataType     *string `json:"dataType,omitempty" jsonschema:"New data type"`
-	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty" jsonschema:"Is primary key"`
-	IsForeignKey *bool   `json:"isForeignKey,omitempty" jsonschema:"Is foreign key"`
-	IsUnique     *bool   `json:"isUnique,omitempty" jsonschema:"Is unique"`
-	IsNullable   *bool   `json:"isNullable,omitempty" jsonschema:"Is nullable"`
-	Description  *string `json:"description,omitempty" jsonschema:"New description"`
+	ColumnID     string  `json:"columnId"`
+	Name         *string `json:"name,omitempty"`
+	DataType     *string `json:"dataType,omitempty"`
+	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty"`
+	IsForeignKey *bool   `json:"isForeignKey,omitempty"`
+	IsUnique     *bool   `json:"isUnique,omitempty"`
+	IsNullable   *bool   `json:"isNullable,omitempty"`
+	Description  *string `json:"description,omitempty"`
 }
 
 type columnIDInput struct {
-	ColumnID string `json:"columnId" jsonschema:"The column UUID"`
+	ColumnID string `json:"columnId"`
 }
 
 type reorderColumnsInput struct {
-	TableID          string   `json:"tableId" jsonschema:"The table UUID"`
-	OrderedColumnIDs []string `json:"orderedColumnIds" jsonschema:"Column IDs in the desired order"`
+	TableID          string   `json:"tableId"`
+	OrderedColumnIDs []string `json:"orderedColumnIds"`
 }
 
 // getWhiteboardIDForTable resolves the whiteboard ID for a table, returning a
@@ -71,7 +71,7 @@ func RegisterColumnTools(s *mcp.Server) {
 func registerCreateColumn(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "create_column",
-		Description: "Create a new column in a table.",
+		Description: "Create a column in a table.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createColumnInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("tableId", in.TableID); e != nil {
 			return fail(e)
@@ -216,7 +216,7 @@ func registerUpdateColumn(s *mcp.Server) {
 func registerDeleteColumn(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "delete_column",
-		Description: "Delete a column. Returns the deleted column ID and cascade relationship count.",
+		Description: "Delete a column. Returns its id and the cascade relationship count.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in columnIDInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("columnId", in.ColumnID); e != nil {
 			return fail(e)
@@ -272,7 +272,7 @@ func registerDeleteColumn(s *mcp.Server) {
 func registerReorderColumns(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "reorder_columns",
-		Description: "Reorder columns within a table by providing the desired column ID order.",
+		Description: "Reorder a table's columns by giving the column ids in the desired order.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in reorderColumnsInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("tableId", in.TableID); e != nil {
 			return fail(e)

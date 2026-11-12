@@ -47,28 +47,28 @@ import (
 const referenceColumnsMax = 100
 
 type createTableReferenceInput struct {
-	WhiteboardID       string   `json:"whiteboardId" jsonschema:"UUID of the whiteboard the reference node is placed on"`
-	SourceWhiteboardID string   `json:"sourceWhiteboardId" jsonschema:"UUID of the whiteboard that owns the referenced table; must be a different board in the SAME project"`
-	SourceTableID      string   `json:"sourceTableId" jsonschema:"UUID of the referenced table, in the source whiteboard"`
-	SourceColumnIDs    []string `json:"sourceColumnIds" jsonschema:"UUIDs of the referenced table's columns to expose, 1 to 100; each becomes a connectable handle on the node"`
-	PositionX          *float64 `json:"positionX,omitempty" jsonschema:"Optional canvas X position; omit to let the first browser client place the node"`
-	PositionY          *float64 `json:"positionY,omitempty" jsonschema:"Optional canvas Y position; omit to let the first browser client place the node"`
+	WhiteboardID       string   `json:"whiteboardId"`
+	SourceWhiteboardID string   `json:"sourceWhiteboardId" jsonschema:"Source board; a different board, same project"`
+	SourceTableID      string   `json:"sourceTableId"`
+	SourceColumnIDs    []string `json:"sourceColumnIds" jsonschema:"Columns to expose, 1 to 100"`
+	PositionX          *float64 `json:"positionX,omitempty" jsonschema:"Omit to let the client place it"`
+	PositionY          *float64 `json:"positionY,omitempty" jsonschema:"Omit to let the client place it"`
 }
 
 type updateTableReferenceInput struct {
-	TableID            string   `json:"tableId" jsonschema:"UUID of the reference node to re-target"`
-	SourceWhiteboardID *string  `json:"sourceWhiteboardId,omitempty" jsonschema:"Optional new source whiteboard UUID; omit to keep the current one"`
-	SourceTableID      *string  `json:"sourceTableId,omitempty" jsonschema:"Optional new source table UUID; omit to keep the current one"`
-	SourceColumnIDs    []string `json:"sourceColumnIds,omitempty" jsonschema:"Optional new set of source column UUIDs, up to 100; omit to keep the current ones"`
+	TableID            string   `json:"tableId"`
+	SourceWhiteboardID *string  `json:"sourceWhiteboardId,omitempty" jsonschema:"Omit to keep the current one"`
+	SourceTableID      *string  `json:"sourceTableId,omitempty" jsonschema:"Omit to keep the current one"`
+	SourceColumnIDs    []string `json:"sourceColumnIds,omitempty" jsonschema:"Up to 100; omit to keep the current ones"`
 }
 
 type deleteTableReferenceInput struct {
-	TableID     string `json:"tableId" jsonschema:"UUID of the reference node to delete"`
-	ConfirmName string `json:"confirmName" jsonschema:"The referenced table's exact name as list_table_references reports it, required as confirmation; the delete is refused if it does not match"`
+	TableID     string `json:"tableId"`
+	ConfirmName string `json:"confirmName" jsonschema:"Referenced table's exact name; a mismatch deletes nothing"`
 }
 
 type listTableReferencesInput struct {
-	WhiteboardID string `json:"whiteboardId" jsonschema:"UUID of the whiteboard whose references to list"`
+	WhiteboardID string `json:"whiteboardId"`
 }
 
 // tableReferenceFns is the injectable pipeline, mirroring folderLifecycleFns.
@@ -282,13 +282,8 @@ func listTableReferencesWithFns(
 // RegisterTableReferenceTools registers the four cross-file reference tools.
 func RegisterTableReferenceTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_table_reference",
-		Description: "Place a node on one ER whiteboard that references a table living on ANOTHER " +
-			"whiteboard of the same project, so a local table can be related to it. Name the " +
-			"source board, the table, and the columns to expose; each exposed column becomes a " +
-			"connectable handle that create_relationship can target. Use list_whiteboards to find " +
-			"the source board and get_board to find the table and column ids — get_schema_summary " +
-			"omits UUIDs and cannot supply them. Requires the EDITOR role or higher.",
+		Name:        "create_table_reference",
+		Description: "Place a reference node on an ER whiteboard for a table on ANOTHER whiteboard of the same project, so local tables can relate to it. Needs UUIDs from get_board (not get_schema_summary). EDITOR role. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createTableReferenceInput) (*mcp.CallToolResult, any, error) {
 		reference, err := createTableReferenceWithFns(ctx, prodTableReferenceFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -298,11 +293,8 @@ func RegisterTableReferenceTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_table_reference",
-		Description: "Point an existing reference node at a different board, table or set of columns, " +
-			"keeping the node and every relationship whose column survives the change. " +
-			"Relationships drawn from a column that does NOT survive are deleted; the result " +
-			"reports how many. Requires the EDITOR role or higher.",
+		Name:        "update_table_reference",
+		Description: "Re-target a reference node at another board, table, or columns. Relationships on columns that do not survive are deleted. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateTableReferenceInput) (*mcp.CallToolResult, any, error) {
 		result, err := updateTableReferenceWithFns(ctx, prodTableReferenceFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -312,10 +304,8 @@ func RegisterTableReferenceTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_table_reference",
-		Description: "Delete a reference node. Every relationship drawn from it is deleted too. " +
-			"Pass confirmName with the referenced table's exact name, as list_table_references " +
-			"reports it. Requires the EDITOR role or higher.",
+		Name:        "delete_table_reference",
+		Description: "Delete a reference node and its relationships. confirmName is the referenced table's exact name (see list_table_references). EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteTableReferenceInput) (*mcp.CallToolResult, any, error) {
 		reference, err := deleteTableReferenceWithFns(ctx, prodTableReferenceFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -325,11 +315,8 @@ func RegisterTableReferenceTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "list_table_references",
-		Description: "List every cross-file reference on a whiteboard, resolved against its source: " +
-			"the referenced table's current name, the file it lives in, and the exposed columns. " +
-			"A reference whose source has been deleted comes back with missing=true, keeping its " +
-			"relationships so nothing disappears silently. Requires read access to the project.",
+		Name:        "list_table_references",
+		Description: "List a whiteboard's cross-board references with the source table, board, and exposed columns; missing=true marks a deleted source.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTableReferencesInput) (*mcp.CallToolResult, any, error) {
 		result, err := listTableReferencesWithFns(ctx, prodTableReferenceFns(), auth.UserID(ctx), in)
 		if err != nil {

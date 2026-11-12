@@ -20,28 +20,28 @@ import (
 // batchColumnSpec describes a column to create inline with a new table.
 // Order within the table is determined by its position in the array.
 type batchColumnSpec struct {
-	Name         string  `json:"name"                    jsonschema:"Column name"`
-	DataType     string  `json:"dataType"                jsonschema:"Column data type"`
-	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty"  jsonschema:"Is primary key"`
-	IsForeignKey *bool   `json:"isForeignKey,omitempty"  jsonschema:"Is foreign key"`
-	IsUnique     *bool   `json:"isUnique,omitempty"      jsonschema:"Is unique"`
-	IsNullable   *bool   `json:"isNullable,omitempty"    jsonschema:"Is nullable"`
-	Description  *string `json:"description,omitempty"   jsonschema:"Optional description"`
+	Name         string  `json:"name"`
+	DataType     string  `json:"dataType"`
+	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty"`
+	IsForeignKey *bool   `json:"isForeignKey,omitempty"`
+	IsUnique     *bool   `json:"isUnique,omitempty"`
+	IsNullable   *bool   `json:"isNullable,omitempty"`
+	Description  *string `json:"description,omitempty"`
 }
 
 // batchTableSpec describes a new table to create. Inline Columns are created
 // immediately after the table:create ack succeeds.
 type batchTableSpec struct {
-	Name        string            `json:"name"                  jsonschema:"Table name (must be unique within this batch for name-based relation resolution)"`
+	Name        string            `json:"name"                  jsonschema:"Unique within the batch"`
 	Description *string           `json:"description,omitempty"`
-	PositionX   *float64          `json:"positionX,omitempty"   jsonschema:"X position (auto-assigned if omitted)"`
-	PositionY   *float64          `json:"positionY,omitempty"   jsonschema:"Y position (auto-assigned if omitted)"`
+	PositionX   *float64          `json:"positionX,omitempty"`
+	PositionY   *float64          `json:"positionY,omitempty"`
 	Columns     []batchColumnSpec `json:"columns,omitempty"`
 }
 
 // batchAddColumnSpec describes a column to add to a pre-existing table (by UUID).
 type batchAddColumnSpec struct {
-	TableID      string  `json:"tableId"                 jsonschema:"Existing table UUID"`
+	TableID      string  `json:"tableId"`
 	Name         string  `json:"name"`
 	DataType     string  `json:"dataType"`
 	IsPrimaryKey *bool   `json:"isPrimaryKey,omitempty"`
@@ -59,12 +59,12 @@ type batchAddColumnSpec struct {
 // When tableId is used, columnId must also be used (name lookup is unavailable
 // for externally-referenced tables).
 type batchRelationSpec struct {
-	SourceTableID    *string `json:"sourceTableId,omitempty"    jsonschema:"UUID of source table (pre-existing)"`
-	SourceTableName  *string `json:"sourceTableName,omitempty"  jsonschema:"Name of source table created in this batch"`
+	SourceTableID    *string `json:"sourceTableId,omitempty"`
+	SourceTableName  *string `json:"sourceTableName,omitempty"`
 	TargetTableID    *string `json:"targetTableId,omitempty"`
 	TargetTableName  *string `json:"targetTableName,omitempty"`
-	SourceColumnID   *string `json:"sourceColumnId,omitempty"   jsonschema:"UUID of source column (pre-existing)"`
-	SourceColumnName *string `json:"sourceColumnName,omitempty" jsonschema:"Name of source column created in this batch"`
+	SourceColumnID   *string `json:"sourceColumnId,omitempty"`
+	SourceColumnName *string `json:"sourceColumnName,omitempty"`
 	TargetColumnID   *string `json:"targetColumnId,omitempty"`
 	TargetColumnName *string `json:"targetColumnName,omitempty"`
 	Cardinality      string  `json:"cardinality"`
@@ -73,10 +73,10 @@ type batchRelationSpec struct {
 
 // batchSchemaUpdateInput is the full input for batch_schema_update.
 type batchSchemaUpdateInput struct {
-	WhiteboardID string               `json:"whiteboardId"           jsonschema:"The whiteboard UUID"`
-	Tables       []batchTableSpec     `json:"tables,omitempty"       jsonschema:"New tables to create (with optional inline columns)"`
-	AddColumns   []batchAddColumnSpec `json:"addColumns,omitempty"   jsonschema:"Columns to add to pre-existing tables"`
-	AddRelations []batchRelationSpec  `json:"addRelations,omitempty" jsonschema:"Relations to create between tables"`
+	WhiteboardID string               `json:"whiteboardId"`
+	Tables       []batchTableSpec     `json:"tables,omitempty"`
+	AddColumns   []batchAddColumnSpec `json:"addColumns,omitempty"`
+	AddRelations []batchRelationSpec  `json:"addRelations,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -443,11 +443,8 @@ func executeBatchSchema(in batchSchemaUpdateInput, whiteboardID string, emit emi
 // RegisterBatchTools registers the batch_schema_update tool.
 func RegisterBatchTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "batch_schema_update",
-		Description: "Create multiple tables (with optional inline columns), add columns to existing tables, " +
-			"and define relations in a single call. Operations execute in order: tables first, then add-columns, " +
-			"then relations. Non-atomic: each item is attempted independently; results are split into " +
-			"created/failed. Relations may reference newly-created tables and columns by name instead of UUID.",
+		Name:        "batch_schema_update",
+		Description: "Create tables (with inline columns), add columns to existing tables, and create relations in one non-atomic call; relations may name new tables and columns instead of using UUIDs. Guide: get_tool_guide.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in batchSchemaUpdateInput) (*mcp.CallToolResult, any, error) {
 		// --- Step 1: validate whiteboardId ---
 		if e := validateUUID("whiteboardId", in.WhiteboardID); e != nil {

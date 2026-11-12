@@ -14,27 +14,27 @@ import (
 )
 
 type createTableInput struct {
-	WhiteboardID string   `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	Name         string   `json:"name" jsonschema:"Table name"`
-	Description  *string  `json:"description,omitempty" jsonschema:"Optional description"`
-	PositionX    *float64 `json:"positionX,omitempty" jsonschema:"X position (auto-assigned if omitted)"`
-	PositionY    *float64 `json:"positionY,omitempty" jsonschema:"Y position (auto-assigned if omitted)"`
-	Width        *float64 `json:"width,omitempty" jsonschema:"Table width"`
-	Height       *float64 `json:"height,omitempty" jsonschema:"Table height"`
+	WhiteboardID string   `json:"whiteboardId"`
+	Name         string   `json:"name"`
+	Description  *string  `json:"description,omitempty"`
+	PositionX    *float64 `json:"positionX,omitempty"`
+	PositionY    *float64 `json:"positionY,omitempty"`
+	Width        *float64 `json:"width,omitempty"`
+	Height       *float64 `json:"height,omitempty"`
 }
 
 type updateTableInput struct {
-	TableID     string   `json:"tableId" jsonschema:"The table UUID"`
-	Name        *string  `json:"name,omitempty" jsonschema:"New name"`
-	Description *string  `json:"description,omitempty" jsonschema:"New description"`
-	PositionX   *float64 `json:"positionX,omitempty" jsonschema:"New X position"`
-	PositionY   *float64 `json:"positionY,omitempty" jsonschema:"New Y position"`
-	Width       *float64 `json:"width,omitempty" jsonschema:"New width"`
-	Height      *float64 `json:"height,omitempty" jsonschema:"New height"`
+	TableID     string   `json:"tableId"`
+	Name        *string  `json:"name,omitempty"`
+	Description *string  `json:"description,omitempty"`
+	PositionX   *float64 `json:"positionX,omitempty"`
+	PositionY   *float64 `json:"positionY,omitempty"`
+	Width       *float64 `json:"width,omitempty"`
+	Height      *float64 `json:"height,omitempty"`
 }
 
 type tableIDInput struct {
-	TableID string `json:"tableId" jsonschema:"The table UUID"`
+	TableID string `json:"tableId"`
 }
 
 // RegisterTableTools registers create_table, update_table, delete_table.
@@ -46,9 +46,8 @@ func RegisterTableTools(s *mcp.Server) {
 
 func registerCreateTable(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_table",
-		Description: "Create a new table in a whiteboard. If positionX/positionY are omitted, " +
-			"the table is created without a position; the client will resolve the position on first load.",
+		Name:        "create_table",
+		Description: "Create a table in an ER whiteboard. Without positionX/positionY the client places it on first load.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createTableInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("whiteboardId", in.WhiteboardID); e != nil {
 			return fail(e)
@@ -125,10 +124,8 @@ func registerCreateTable(s *mcp.Server) {
 
 func registerUpdateTable(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_table",
-		Description: "Update a table's name, description, size, and/or position. " +
-			"Internally routes name/description/size → table:update and position → table:move. " +
-			"Emits are sequential; a failure on the first aborts the second.",
+		Name:        "update_table",
+		Description: "Update a table's name, description, size, or position.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateTableInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("tableId", in.TableID); e != nil {
 			return fail(e)
@@ -264,9 +261,8 @@ func registerUpdateTable(s *mcp.Server) {
 
 func registerDeleteTable(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_table",
-		Description: "Delete a table and all its columns and relationships (cascade). " +
-			"Returns the deleted table ID and cascade counts.",
+		Name:        "delete_table",
+		Description: "Delete a table with its columns and relationships. Returns the deleted id and cascade counts.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in tableIDInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("tableId", in.TableID); e != nil {
 			return fail(e)

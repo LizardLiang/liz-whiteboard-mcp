@@ -20,25 +20,25 @@ import (
 )
 
 type createAreaInput struct {
-	WhiteboardID   string   `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	Name           string   `json:"name" jsonschema:"Area name"`
-	Color          string   `json:"color" jsonschema:"Palette color id: slate, red, orange, amber, green, teal, blue, or violet"`
-	PositionX      float64  `json:"positionX" jsonschema:"X position"`
-	PositionY      float64  `json:"positionY" jsonschema:"Y position"`
-	Width          float64  `json:"width" jsonschema:"Area width"`
-	Height         float64  `json:"height" jsonschema:"Area height"`
-	MemberTableIDs []string `json:"memberTableIds,omitempty" jsonschema:"Initial member table UUIDs (default empty)"`
+	WhiteboardID   string   `json:"whiteboardId"`
+	Name           string   `json:"name"`
+	Color          string   `json:"color"`
+	PositionX      float64  `json:"positionX"`
+	PositionY      float64  `json:"positionY"`
+	Width          float64  `json:"width"`
+	Height         float64  `json:"height"`
+	MemberTableIDs []string `json:"memberTableIds,omitempty"`
 }
 
 type areaTableInput struct {
-	AreaID  string `json:"areaId" jsonschema:"The area UUID"`
-	TableID string `json:"tableId" jsonschema:"The table UUID"`
+	AreaID  string `json:"areaId"`
+	TableID string `json:"tableId"`
 }
 
 type moveAreaInput struct {
-	AreaID    string  `json:"areaId" jsonschema:"The area UUID"`
-	PositionX float64 `json:"positionX" jsonschema:"New X position for the area"`
-	PositionY float64 `json:"positionY" jsonschema:"New Y position for the area"`
+	AreaID    string  `json:"areaId"`
+	PositionX float64 `json:"positionX"`
+	PositionY float64 `json:"positionY"`
 }
 
 // areaMoveMember is one entry of the area:move payload's members array —
@@ -74,9 +74,8 @@ func RegisterAreaTools(s *mcp.Server) {
 
 func registerCreateArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_area",
-		Description: "Create a subject area: a colored grouping region for tables, with a name, " +
-			"palette color, position, size, and optional initial members.",
+		Name:        "create_area",
+		Description: "Create a subject area: a colored region that groups tables.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createAreaInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("whiteboardId", in.WhiteboardID); e != nil {
 			return fail(e)
@@ -147,10 +146,8 @@ func registerCreateArea(s *mcp.Server) {
 
 func registerAddTableToArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "add_table_to_area",
-		Description: "Add a table to a subject area's membership. The table keeps its canvas " +
-			"position; the area's bounding box is recomputed to enclose it. Idempotent — adding an " +
-			"already-member table is a no-op on membership (bounds are still recomputed).",
+		Name:        "add_table_to_area",
+		Description: "Add a table to an area; the area bounds grow to enclose it. Idempotent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in areaTableInput) (*mcp.CallToolResult, any, error) {
 		return mutateAreaMembership(ctx, in, true)
 	})
@@ -158,10 +155,8 @@ func registerAddTableToArea(s *mcp.Server) {
 
 func registerRemoveTableFromArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "remove_table_from_area",
-		Description: "Remove a table from a subject area's membership. The table keeps its canvas " +
-			"position; the area's bounding box is recomputed to exclude it. Idempotent — removing a " +
-			"non-member table is a no-op on membership (bounds are still recomputed).",
+		Name:        "remove_table_from_area",
+		Description: "Remove a table from an area; the area bounds are recomputed. Idempotent.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in areaTableInput) (*mcp.CallToolResult, any, error) {
 		return mutateAreaMembership(ctx, in, false)
 	})
@@ -319,10 +314,8 @@ func computeAreaBoundsForMembers(ctx context.Context, memberTableIDs []string) (
 
 func registerMoveArea(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "move_area",
-		Description: "Move a subject area. Every member table shifts by the same delta " +
-			"(atomic drag, matching human drag behavior) — members with an unresolved (NULL) " +
-			"position are left in place. The area's bounds are unchanged (rigid translate).",
+		Name:        "move_area",
+		Description: "Move an area; every member table shifts by the same delta.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in moveAreaInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("areaId", in.AreaID); e != nil {
 			return fail(e)

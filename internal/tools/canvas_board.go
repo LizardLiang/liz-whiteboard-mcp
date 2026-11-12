@@ -39,20 +39,20 @@ import (
 const canvasBoardNameMaxLength = 255
 
 type createCanvasBoardInput struct {
-	ProjectID string  `json:"projectId" jsonschema:"The project UUID the board belongs to"`
-	Name      string  `json:"name" jsonschema:"Board name, 1 to 255 characters"`
-	FolderID  *string `json:"folderId,omitempty" jsonschema:"Optional folder UUID; omit to place the board at the project root"`
+	ProjectID string  `json:"projectId"`
+	Name      string  `json:"name" jsonschema:"1-255 characters"`
+	FolderID  *string `json:"folderId,omitempty" jsonschema:"Omit for the project root"`
 }
 
 type updateCanvasBoardInput struct {
-	CanvasBoardID string  `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	Name          *string `json:"name,omitempty" jsonschema:"New board name, 1 to 255 characters"`
-	FolderID      *string `json:"folderId,omitempty" jsonschema:"Folder UUID to move the board into; omitting it leaves the board where it is"`
+	CanvasBoardID string  `json:"canvasBoardId"`
+	Name          *string `json:"name,omitempty" jsonschema:"1-255 characters"`
+	FolderID      *string `json:"folderId,omitempty" jsonschema:"Move target; omit to keep"`
 }
 
 type deleteCanvasBoardInput struct {
-	CanvasBoardID string `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	ConfirmName   string `json:"confirmName" jsonschema:"The board's exact current name, required as confirmation; the delete is refused if it does not match"`
+	CanvasBoardID string `json:"canvasBoardId"`
+	ConfirmName   string `json:"confirmName" jsonschema:"Exact current name; a mismatch deletes nothing"`
 }
 
 // canvasBoardLifecycleFns is the injectable lifecycle pipeline, mirroring
@@ -212,11 +212,8 @@ func deleteCanvasBoardWithFns(
 // and delete_canvas_board.
 func RegisterCanvasBoardTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_canvas_board",
-		Description: "Create a new canvas board in a project (freeform FigJam-style board, NOT an " +
-			"ER diagram whiteboard). Returns the new board, whose id the canvas element tools take. " +
-			"Requires the EDITOR role or higher on the project. " +
-			"For an ER diagram whiteboard, use create_whiteboard instead.",
+		Name:        "create_canvas_board",
+		Description: "Create a canvas board in a project (optional folderId). Returns its id. EDITOR role. ER diagrams: create_whiteboard.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasBoardInput) (*mcp.CallToolResult, any, error) {
 		board, err := createCanvasBoardWithFns(ctx, prodCanvasBoardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -226,11 +223,8 @@ func RegisterCanvasBoardTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_canvas_board",
-		Description: "Rename a canvas board or move it into a folder (freeform FigJam-style board, " +
-			"NOT an ER diagram whiteboard). Supply canvasBoardId and at least one of name or folderId. " +
-			"Omitting folderId leaves the board where it is; there is no way to move a board back to " +
-			"the project root through this tool. Requires the EDITOR role or higher.",
+		Name:        "update_canvas_board",
+		Description: "Rename a canvas board or move it into a folder. Needs name or folderId; it cannot return to the root. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateCanvasBoardInput) (*mcp.CallToolResult, any, error) {
 		board, err := updateCanvasBoardWithFns(ctx, prodCanvasBoardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -240,11 +234,8 @@ func RegisterCanvasBoardTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_canvas_board",
-		Description: "Permanently delete a canvas board and EVERY element and share link on it " +
-			"(freeform FigJam-style board, NOT an ER diagram whiteboard). This cannot be undone. " +
-			"confirmName is required and must equal the board's exact current name — read it with " +
-			"get_canvas_board first. A mismatch deletes nothing. Requires the EDITOR role or higher.",
+		Name:        "delete_canvas_board",
+		Description: "Permanently delete a canvas board with all its elements and share links. confirmName must equal the exact name (see get_canvas_board). EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteCanvasBoardInput) (*mcp.CallToolResult, any, error) {
 		board, err := deleteCanvasBoardWithFns(ctx, prodCanvasBoardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {

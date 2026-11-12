@@ -13,14 +13,14 @@ import (
 )
 
 type positionEntry struct {
-	ID        string  `json:"id" jsonschema:"Table UUID"`
-	PositionX float64 `json:"positionX" jsonschema:"New X position"`
-	PositionY float64 `json:"positionY" jsonschema:"New Y position"`
+	ID        string  `json:"id"`
+	PositionX float64 `json:"positionX"`
+	PositionY float64 `json:"positionY"`
 }
 
 type bulkUpdatePositionsInput struct {
-	WhiteboardID string          `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	Positions    []positionEntry `json:"positions" jsonschema:"Array of table position updates"`
+	WhiteboardID string          `json:"whiteboardId"`
+	Positions    []positionEntry `json:"positions"`
 }
 
 type posUpdated struct {
@@ -78,10 +78,8 @@ func aggregatePositions(positions []positionEntry, emit emitFunc) ([]posUpdated,
 // {updated, failed}. Mirrors src/mcp/tools/positions.ts.
 func RegisterPositionsTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "bulk_update_positions",
-		Description: "Update positions of multiple tables at once. " +
-			"Non-atomic: failures on individual tables are reported in the \"failed\" array " +
-			"without rolling back already-persisted updates.",
+		Name:        "bulk_update_positions",
+		Description: "Set the positions of several tables at once. Non-atomic: failures are listed in failed; earlier updates stay.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in bulkUpdatePositionsInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("whiteboardId", in.WhiteboardID); e != nil {
 			return fail(e)

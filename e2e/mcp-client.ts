@@ -26,7 +26,10 @@ export class McpClient {
   private sessionId: string | null = null
   private nextId = 1
 
-  constructor(private readonly accessToken: string) {}
+  constructor(
+    private readonly accessToken: string,
+    private readonly extraHeaders: Record<string, string> = {},
+  ) {}
 
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
@@ -35,6 +38,7 @@ export class McpClient {
       // answers 406 if text/event-stream is missing.
       Accept: 'application/json, text/event-stream',
       Authorization: `Bearer ${this.accessToken}`,
+      ...this.extraHeaders,
     }
     if (this.sessionId) headers['Mcp-Session-Id'] = this.sessionId
     return headers
@@ -92,6 +96,12 @@ export class McpClient {
     // A notification carries no id and expects no response body.
     await this.post({ jsonrpc: '2.0', method: 'notifications/initialized' })
     return result.serverInfo
+  }
+
+  /** Full tools/list result, descriptions included. */
+  async listTools(): Promise<Array<{ name: string; description?: string }>> {
+    const result = await this.rpc('tools/list', {})
+    return result.tools
   }
 
   async listToolNames(): Promise<Array<string>> {

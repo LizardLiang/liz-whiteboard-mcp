@@ -29,12 +29,12 @@ import (
 const canvasMaxElementsDefault = 500
 
 type listCanvasBoardsInput struct {
-	ProjectID string `json:"projectId" jsonschema:"The project UUID"`
+	ProjectID string `json:"projectId"`
 }
 
 type canvasBoardIDInput struct {
-	CanvasBoardID string `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	MaxElements   *int   `json:"maxElements,omitempty" jsonschema:"Maximum elements to return, 1-500 (default 500)"`
+	CanvasBoardID string `json:"canvasBoardId"`
+	MaxElements   *int   `json:"maxElements,omitempty" jsonschema:"1-500 (default 500)"`
 }
 
 // canvasBoardOut is the get_canvas_board response: the board, a bounded slice of
@@ -163,10 +163,8 @@ func newCanvasBoardOut(board *data.CanvasBoardWithElements, maxElements int) can
 // get_canvas_summary.
 func RegisterCanvasReadTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "list_canvas_boards",
-		Description: "List all canvas boards in a project. Canvas boards are freeform FigJam-style " +
-			"boards of shapes, text, and connectors — NOT ER diagram whiteboards. " +
-			"Use list_whiteboards for ER diagrams.",
+		Name:        "list_canvas_boards",
+		Description: "List the canvas boards (freeform shapes, text, connectors) in a project. ER diagrams: list_whiteboards.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listCanvasBoardsInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("projectId", in.ProjectID); e != nil {
 			return fail(e)
@@ -183,13 +181,8 @@ func RegisterCanvasReadTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_canvas_board",
-		Description: "Get the full state of a canvas board (freeform shapes, text, and connectors) " +
-			"with every element's geometry, style, and props, in paint order. " +
-			"This is the detail read: prefer get_canvas_summary for orientation. " +
-			"A table element carries its grid in props.table (rows, cols, and cells keyed rowId:colId). " +
-			"Returns at most 500 elements and reports totalElements and truncated. " +
-			"For ER diagram whiteboards use get_board instead.",
+		Name:        "get_canvas_board",
+		Description: "Get a canvas board's elements in paint order with geometry, style and props (up to 500; reports totalElements, truncated). Large; read get_canvas_summary first.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in canvasBoardIDInput) (*mcp.CallToolResult, any, error) {
 		maxElements, e := resolveMaxElements(in.MaxElements)
 		if e != nil {
@@ -203,11 +196,8 @@ func RegisterCanvasReadTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_canvas_summary",
-		Description: "Get a compact text summary of a canvas board: element counts by kind and one " +
-			"line per element with its kind, position, size, and text. Omits UUIDs, style, " +
-			"and props. Use this first to understand a canvas board, then get_canvas_board " +
-			"for full detail. For ER diagram whiteboards use get_schema_summary instead.",
+		Name:        "get_canvas_summary",
+		Description: "Get a compact text summary of a canvas board: counts by kind and one line per element (kind, position, size, text), without UUIDs. Read it before get_canvas_board.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in canvasBoardIDInput) (*mcp.CallToolResult, any, error) {
 		maxElements, e := resolveMaxElements(in.MaxElements)
 		if e != nil {

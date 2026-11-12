@@ -38,27 +38,7 @@ func TestToolCountMatchesDocumentation(t *testing.T) {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "count-test", Version: "0"}, nil)
 
-	// Mirrors the registration block in cmd/mcp/main.go.
-	tools.RegisterDiscoveryTools(server)
-	tools.RegisterReadTools(server)
-	tools.RegisterTableTools(server)
-	tools.RegisterColumnTools(server)
-	tools.RegisterRelationshipTools(server)
-	tools.RegisterPositionsTools(server)
-	tools.RegisterStaticTools(server)
-	tools.RegisterBatchTools(server)
-	tools.RegisterDDLTools(server)
-	tools.RegisterAreaTools(server)
-	tools.RegisterCanvasReadTools(server)
-	tools.RegisterCanvasWriteTools(server)
-	tools.RegisterCanvasConnectorTools(server)
-	tools.RegisterCanvasTableTools(server)
-	tools.RegisterCanvasBoardTools(server)
-	tools.RegisterProjectTools(server)
-	tools.RegisterFolderTools(server)
-	tools.RegisterWhiteboardTools(server)
-	tools.RegisterTableReferenceTools(server)
-	tools.RegisterBoardImageTools(server)
+	tools.RegisterAll(server)
 
 	// Ask the server what it advertises, over a real session. mcp.Server keeps
 	// its tool list unexported, and the advertised list is what an agent

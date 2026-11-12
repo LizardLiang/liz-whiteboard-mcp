@@ -14,14 +14,14 @@ import (
 func RegisterStaticTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_data_types",
-		Description: "List all valid column data types supported by liz-whiteboard.",
+		Description: "List the valid column data types.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
 		return success(schema.DataTypes)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_cardinalities",
-		Description: "List all valid relationship cardinalities supported by liz-whiteboard.",
+		Description: "List the valid relationship cardinalities.",
 	}, func(_ context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
 		return success(schema.Cardinalities)
 	})

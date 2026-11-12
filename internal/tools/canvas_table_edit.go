@@ -70,36 +70,31 @@ var allChangeFields = []string{
 	"fromRow", "fromColumn", "toRow", "toColumn", "fill", "align",
 }
 
-var editCanvasTableDescription = fmt.Sprintf("Change one table on a canvas board (see create_canvas_table). "+
-	"changes is an ordered list, 1 to %d items, applied one after another; each item has a type and only the fields its type uses: "+
-	"setText {row, column, text}; insertRow {at} (0 to the row count; the row count appends); removeRow {row}; "+
+var editCanvasTableDescription = fmt.Sprintf("Change one canvas table (see create_canvas_table) with an ordered list of 1 to %d items. "+
+	"Each item has a type and only its fields: setText {row, column, text}; insertRow {at}; removeRow {row}; "+
 	"insertColumn {at}; removeColumn {column}; resizeRow {row, height >= %g}; resizeColumn {column, width >= %g}; "+
-	"setHeaderRow {on}; setFill {fromRow, fromColumn, toRow, toColumn, fill} (fill is required: any CSS colour; null or an empty "+
-	"string clears); setAlign {fromRow, fromColumn, toRow, toColumn, align: left|center|right}. "+
-	"Text is at most %d characters. Rows and columns are numbered from 0 and renumber after each insert or remove. "+
-	"setText grows the row to fit the text, header text counted bold; it never shrinks a row (use resizeRow). "+
-	"The list stops at the first refused change and reports applied, failed and skipped; "+
-	"earlier changes stay applied. If the connection drops mid-change, the table is re-read: a change that landed counts "+
-	"as applied, otherwise failed.code is CONNECTION_ERROR and the outcome is unknown, so re-read the table before retrying.",
+	"setHeaderRow {on}; setFill {fromRow, fromColumn, toRow, toColumn, fill}; setAlign {fromRow, fromColumn, toRow, toColumn, align}. "+
+	"Text is at most %d characters. Indexes are 0-based and renumber after each insert or remove. "+
+	"The list stops at the first refused change; earlier changes stay applied. Guide: get_tool_guide.",
 	tableMaxChanges, tableMinRowHeight, tableMinColWidth, tableMaxTextLength)
 
 // tableChangeInput is one change. The fields each type reads are listed in
 // changeFields; any other field is refused.
 type tableChangeInput struct {
-	Type       string   `json:"type" jsonschema:"setText, insertRow, removeRow, insertColumn, removeColumn, resizeRow, resizeColumn, setHeaderRow, setFill, or setAlign"`
-	Row        *int     `json:"row,omitempty" jsonschema:"0-based row number (setText, removeRow, resizeRow)"`
-	Column     *int     `json:"column,omitempty" jsonschema:"0-based column number (setText, removeColumn, resizeColumn)"`
-	Text       *string  `json:"text,omitempty" jsonschema:"Cell text, at most 5000 characters (setText)"`
-	At         *int     `json:"at,omitempty" jsonschema:"Insert position, 0 to the current count (insertRow, insertColumn)"`
-	Height     *float64 `json:"height,omitempty" jsonschema:"Row height, at least 24 (resizeRow)"`
-	Width      *float64 `json:"width,omitempty" jsonschema:"Column width, at least 40 (resizeColumn)"`
-	On         *bool    `json:"on,omitempty" jsonschema:"Whether the first row is a header (setHeaderRow)"`
-	FromRow    *int     `json:"fromRow,omitempty" jsonschema:"First row of the cell range (setFill, setAlign)"`
-	FromColumn *int     `json:"fromColumn,omitempty" jsonschema:"First column of the cell range (setFill, setAlign)"`
-	ToRow      *int     `json:"toRow,omitempty" jsonschema:"Last row of the cell range, inclusive (setFill, setAlign)"`
-	ToColumn   *int     `json:"toColumn,omitempty" jsonschema:"Last column of the cell range, inclusive (setFill, setAlign)"`
-	Fill       *string  `json:"fill,omitempty" jsonschema:"CSS colour; null or empty clears the fill. Required for setFill"`
-	Align      *string  `json:"align,omitempty" jsonschema:"left, center, or right (setAlign)"`
+	Type       string   `json:"type" jsonschema:"Change type"`
+	Row        *int     `json:"row,omitempty" jsonschema:"0-based"`
+	Column     *int     `json:"column,omitempty" jsonschema:"0-based"`
+	Text       *string  `json:"text,omitempty" jsonschema:"At most 5000 characters"`
+	At         *int     `json:"at,omitempty" jsonschema:"0 to the current count"`
+	Height     *float64 `json:"height,omitempty" jsonschema:"Row height, at least 24"`
+	Width      *float64 `json:"width,omitempty" jsonschema:"Column width, at least 40"`
+	On         *bool    `json:"on,omitempty"`
+	FromRow    *int     `json:"fromRow,omitempty"`
+	FromColumn *int     `json:"fromColumn,omitempty"`
+	ToRow      *int     `json:"toRow,omitempty" jsonschema:"Inclusive"`
+	ToColumn   *int     `json:"toColumn,omitempty" jsonschema:"Inclusive"`
+	Fill       *string  `json:"fill,omitempty" jsonschema:"CSS colour; null or empty clears. Required for setFill"`
+	Align      *string  `json:"align,omitempty" jsonschema:"left, center, or right"`
 
 	// present records which keys the JSON carried, so a missing fill differs
 	// from a null one. Nil for a change built in Go; has() then reads the pointers.
@@ -162,9 +157,9 @@ func (c tableChangeInput) has(field string) bool {
 }
 
 type editCanvasTableInput struct {
-	CanvasBoardID string             `json:"canvasBoardId" jsonschema:"The canvas board UUID"`
-	ElementID     string             `json:"elementId" jsonschema:"The table element UUID"`
-	Changes       []tableChangeInput `json:"changes" jsonschema:"Ordered list of 1 to 200 changes"`
+	CanvasBoardID string             `json:"canvasBoardId"`
+	ElementID     string             `json:"elementId"`
+	Changes       []tableChangeInput `json:"changes" jsonschema:"1 to 200 changes, applied in order"`
 }
 
 // tableChangeFailure is the refused change in the result.

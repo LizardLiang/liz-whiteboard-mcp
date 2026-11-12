@@ -1,0 +1,82 @@
+// e2e/toolsets-mcp.spec.ts
+// Progressive disclosure over the real wire: the X-Liz-Toolsets header picks the
+// tools a session receives, a bad value is refused at session start, and
+// get_tool_guide serves the long how-to text the short descriptions leave out.
+//
+// Header handling lives in the Go server (cmd/mcp/toolsets.go), but only a running
+// stack proves Caddy forwards the header and the bearer middleware still runs first.
+import { expect, test } from '@playwright/test'
+import { EDITOR_USER, IDS, MCP_URL } from './fixtures'
+import { McpClient } from './mcp-client'
+import { mintAccessToken } from './oauth'
+
+const TOOL_COUNT = 54
+
+let token: string
+
+test.beforeAll(async () => {
+  token = await mintAccessToken(EDITOR_USER)
+})
+
+async function connected(headers: Record<string, string> = {}): Promise<McpClient> {
+  const client = new McpClient(token, headers)
+  await client.connect()
+  return client
+}
+
+test('no header lists all 54 tools', async () => {
+  const names = await (await connected()).listToolNames()
+  expect(names).toHaveLength(TOOL_COUNT)
+  expect(names).toContain('get_tool_guide')
+})
+
+test('X-Liz-Toolsets: canvas lists only core and canvas tools, and a canvas create works', async () => {
+  const client = await connected({ 'X-Liz-Toolsets': 'canvas' })
+  const names = await client.listToolNames()
+  expect(names).toContain('list_projects')
+  expect(names).toContain('get_tool_guide')
+  expect(names).toContain('edit_canvas_table')
+  expect(names).not.toContain('create_table')
+  expect(names).not.toContain('create_project')
+  expect(names).toHaveLength(16)
+
+  const element = await client.expectOk<{ id: string }>('create_canvas_element', {
+    canvasBoardId: IDS.canvasBoard,
+    kind: 'rectangle',
+    positionX: 10,
+    positionY: 10,
+    width: 80,
+    height: 40,
+  })
+  expect(element.id).toBeTruthy()
+})
+
+test('an unknown toolset is refused with HTTP 400 naming the valid toolsets', async () => {
+  const response = await fetch(MCP_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Authorization: `Bearer ${token}`,
+      'X-Liz-Toolsets': 'nope',
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } },
+    }),
+  })
+  expect(response.status).toBe(400)
+  const body = await response.text()
+  expect(body).toContain('all, core, er, canvas, manage')
+})
+
+test('get_tool_guide edit_canvas_table returns the guide', async () => {
+  const client = await connected({ 'X-Liz-Toolsets': 'core' })
+  const guide = await client.expectOk<string>('get_tool_guide', { tool: 'edit_canvas_table' })
+  expect(String(guide)).toContain('setFill')
+  expect(String(guide)).toContain('CONNECTION_ERROR')
+  const listing = await client.expectOk<string>('get_tool_guide', {})
+  expect(String(listing)).toContain('batch_schema_update')
+})

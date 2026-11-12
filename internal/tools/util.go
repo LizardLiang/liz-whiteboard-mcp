@@ -20,7 +20,7 @@ import (
 // TestToolCountMatchesDocumentation asserts it against both the tools the
 // server actually advertises and the count README.md prints. Adding a tool
 // means bumping this constant and updating README.md; the test fails otherwise.
-const ToolCount = 53
+const ToolCount = 54
 
 // emptyInput is the input type for tools that take no arguments.
 type emptyInput struct{}

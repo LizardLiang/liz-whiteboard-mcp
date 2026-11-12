@@ -34,19 +34,19 @@ import (
 const folderNameMaxLength = 255
 
 type createFolderInput struct {
-	ProjectID      string  `json:"projectId" jsonschema:"The project UUID the folder belongs to"`
-	Name           string  `json:"name" jsonschema:"Folder name, 1 to 255 characters"`
-	ParentFolderID *string `json:"parentFolderId,omitempty" jsonschema:"Optional parent folder UUID; omit to place the folder at the project root"`
+	ProjectID      string  `json:"projectId"`
+	Name           string  `json:"name"`
+	ParentFolderID *string `json:"parentFolderId,omitempty" jsonschema:"Omit for the project root"`
 }
 
 type updateFolderInput struct {
-	FolderID string `json:"folderId" jsonschema:"The folder UUID"`
-	Name     string `json:"name" jsonschema:"New folder name, 1 to 255 characters"`
+	FolderID string `json:"folderId"`
+	Name     string `json:"name" jsonschema:"1-255 characters"`
 }
 
 type deleteFolderInput struct {
-	FolderID    string `json:"folderId" jsonschema:"The folder UUID"`
-	ConfirmName string `json:"confirmName" jsonschema:"The folder's exact current name, required as confirmation; the delete is refused if it does not match"`
+	FolderID    string `json:"folderId"`
+	ConfirmName string `json:"confirmName" jsonschema:"Exact current name; a mismatch deletes nothing"`
 }
 
 // folderLifecycleFns is the injectable pipeline, mirroring
@@ -213,11 +213,8 @@ func cascadeWarning(ctx context.Context, fns folderLifecycleFns, projectID, fold
 // RegisterFolderTools registers create_folder, update_folder and delete_folder.
 func RegisterFolderTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_folder",
-		Description: "Create a folder in a project to organise ER whiteboards and canvas boards. " +
-			"Pass parentFolderId to nest it, or omit that to place it at the project root. " +
-			"Returns the new folder, whose id create_whiteboard and create_canvas_board accept as " +
-			"folderId. Requires the EDITOR role or higher.",
+		Name:        "create_folder",
+		Description: "Create a folder in a project; parentFolderId nests it, omit for the root. Returns its id. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createFolderInput) (*mcp.CallToolResult, any, error) {
 		folder, err := createFolderWithFns(ctx, prodFolderLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -227,10 +224,8 @@ func RegisterFolderTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_folder",
-		Description: "Rename a folder. Renaming is the only change available: there is no way to move " +
-			"a folder to a different parent through this server, because the app exposes none. " +
-			"Requires the EDITOR role or higher.",
+		Name:        "update_folder",
+		Description: "Rename a folder. Renaming is the only change; folders cannot be moved. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateFolderInput) (*mcp.CallToolResult, any, error) {
 		folder, err := updateFolderWithFns(ctx, prodFolderLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -240,13 +235,8 @@ func RegisterFolderTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_folder",
-		Description: "Permanently delete a folder, EVERY folder nested inside it, and EVERY ER " +
-			"whiteboard and canvas board filed in any of them — with all their tables, columns and " +
-			"relationships. This cannot be undone. A folder that looks empty in a listing may still " +
-			"hold boards; call list_folders to see the counts first. confirmName is required and " +
-			"must equal the folder's exact current name. A mismatch deletes nothing. Requires the " +
-			"EDITOR role or higher.",
+		Name:        "delete_folder",
+		Description: "Permanently delete a folder, its nested folders, and every board in them. confirmName must equal the exact name; check list_folders counts first. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteFolderInput) (*mcp.CallToolResult, any, error) {
 		folder, err := deleteFolderWithFns(ctx, prodFolderLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {

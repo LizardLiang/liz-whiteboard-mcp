@@ -41,20 +41,20 @@ import (
 const whiteboardNameMaxLength = 255
 
 type createWhiteboardInput struct {
-	ProjectID string  `json:"projectId" jsonschema:"The project UUID the whiteboard belongs to"`
-	Name      string  `json:"name" jsonschema:"Whiteboard name, 1 to 255 characters"`
-	FolderID  *string `json:"folderId,omitempty" jsonschema:"Optional folder UUID; omit to place the whiteboard at the project root"`
+	ProjectID string  `json:"projectId"`
+	Name      string  `json:"name" jsonschema:"1-255 characters"`
+	FolderID  *string `json:"folderId,omitempty" jsonschema:"Omit for the project root"`
 }
 
 type updateWhiteboardInput struct {
-	WhiteboardID string  `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	Name         *string `json:"name,omitempty" jsonschema:"New whiteboard name, 1 to 255 characters"`
-	FolderID     *string `json:"folderId,omitempty" jsonschema:"Folder UUID to move the whiteboard into; omitting it leaves the board where it is"`
+	WhiteboardID string  `json:"whiteboardId"`
+	Name         *string `json:"name,omitempty" jsonschema:"1-255 characters"`
+	FolderID     *string `json:"folderId,omitempty" jsonschema:"Move target; omit to keep"`
 }
 
 type deleteWhiteboardInput struct {
-	WhiteboardID string `json:"whiteboardId" jsonschema:"The whiteboard UUID"`
-	ConfirmName  string `json:"confirmName" jsonschema:"The whiteboard's exact current name, required as confirmation; the delete is refused if it does not match"`
+	WhiteboardID string `json:"whiteboardId"`
+	ConfirmName  string `json:"confirmName" jsonschema:"Exact current name; a mismatch deletes nothing"`
 }
 
 // whiteboardLifecycleFns is the injectable pipeline, mirroring
@@ -217,11 +217,8 @@ func deleteWhiteboardWithFns(
 // delete_whiteboard.
 func RegisterWhiteboardTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_whiteboard",
-		Description: "Create a new ER diagram whiteboard in a project (tables, columns and " +
-			"relationships — NOT a freeform canvas board). Returns the new whiteboard, whose id " +
-			"create_table and the other schema tools take. Pass folderId to file it in a folder; " +
-			"read folder ids with list_folders. Requires the EDITOR role or higher.",
+		Name:        "create_whiteboard",
+		Description: "Create an ER whiteboard in a project (optional folderId). Returns its id for the schema tools. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createWhiteboardInput) (*mcp.CallToolResult, any, error) {
 		board, err := createWhiteboardWithFns(ctx, prodWhiteboardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -231,11 +228,8 @@ func RegisterWhiteboardTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_whiteboard",
-		Description: "Rename an ER diagram whiteboard or move it into a folder. Supply whiteboardId " +
-			"and at least one of name or folderId. Omitting folderId leaves the board where it is; " +
-			"there is no way to move a board back to the project root through this tool, and no way " +
-			"to move it to a different project. Requires the EDITOR role or higher.",
+		Name:        "update_whiteboard",
+		Description: "Rename an ER whiteboard or move it into a folder. Needs name or folderId; it cannot return to the root. EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateWhiteboardInput) (*mcp.CallToolResult, any, error) {
 		board, err := updateWhiteboardWithFns(ctx, prodWhiteboardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -245,11 +239,8 @@ func RegisterWhiteboardTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_whiteboard",
-		Description: "Permanently delete an ER diagram whiteboard and EVERY table, column and " +
-			"relationship on it. This cannot be undone. confirmName is required and must equal the " +
-			"board's exact current name — read it with list_whiteboards first. A mismatch deletes " +
-			"nothing. Requires the EDITOR role or higher.",
+		Name:        "delete_whiteboard",
+		Description: "Permanently delete an ER whiteboard with its tables, columns and relationships. confirmName must equal the exact name (see list_whiteboards). EDITOR role.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteWhiteboardInput) (*mcp.CallToolResult, any, error) {
 		board, err := deleteWhiteboardWithFns(ctx, prodWhiteboardLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {

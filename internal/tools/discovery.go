@@ -16,11 +16,11 @@ type projectOut struct {
 }
 
 type listWhiteboardsInput struct {
-	ProjectID string `json:"projectId" jsonschema:"The project UUID"`
+	ProjectID string `json:"projectId"`
 }
 
 type projectScopedInput struct {
-	ProjectID string `json:"projectId" jsonschema:"The project UUID"`
+	ProjectID string `json:"projectId"`
 }
 
 // RegisterDiscoveryTools registers list_projects, list_whiteboards,
@@ -28,7 +28,7 @@ type projectScopedInput struct {
 func RegisterDiscoveryTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_projects",
-		Description: "List all ER diagram projects accessible to the authenticated user.",
+		Description: "List the projects you can access (id, name, description).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ emptyInput) (*mcp.CallToolResult, any, error) {
 		userID := auth.UserID(ctx)
 		projects, err := auth.ListAccessibleProjects(ctx, userID)
@@ -44,7 +44,7 @@ func RegisterDiscoveryTools(s *mcp.Server) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "list_whiteboards",
-		Description: "List all whiteboards in a project.",
+		Description: "List the ER whiteboards in a project.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listWhiteboardsInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("projectId", in.ProjectID); e != nil {
 			return fail(e)
@@ -61,11 +61,8 @@ func RegisterDiscoveryTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "list_folders",
-		Description: "List the folders in a project. Returns each folder's id, name, parent folder, " +
-			"and how many child folders, ER whiteboards and canvas boards it holds. " +
-			"Use it to find a folderId for the board tools, and to read a folder's exact name " +
-			"before delete_folder, which requires it as confirmation.",
+		Name:        "list_folders",
+		Description: "List a project's folders with parent and child counts (folders, ER whiteboards, canvas boards). Use it to find a folderId, and to read a folder's exact name for delete_folder.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in projectScopedInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("projectId", in.ProjectID); e != nil {
 			return fail(e)
@@ -82,12 +79,8 @@ func RegisterDiscoveryTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "get_project_tree",
-		Description: "Get a project's whole navigable shape in one call: folders nested, each with " +
-			"the boards filed in it, plus the boards at the project root. Every board carries a " +
-			"kind of \"whiteboard\" (ER diagram) or \"canvasBoard\" (freeform), because the two " +
-			"board kinds have separate tool sets. Prefer this over repeated list_ calls when " +
-			"orienting in an unfamiliar project.",
+		Name:        "get_project_tree",
+		Description: "Get a project's folders and boards nested in one call; each board has kind whiteboard (ER) or canvasBoard (freeform). Prefer it over repeated list calls.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in projectScopedInput) (*mcp.CallToolResult, any, error) {
 		if e := validateUUID("projectId", in.ProjectID); e != nil {
 			return fail(e)

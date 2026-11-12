@@ -47,19 +47,19 @@ const projectNameMaxLength = 255
 const projectDescriptionMaxLength = 1000
 
 type createProjectInput struct {
-	Name        string  `json:"name" jsonschema:"Project name, 1 to 255 characters"`
-	Description *string `json:"description,omitempty" jsonschema:"Optional description, up to 1000 characters"`
+	Name        string  `json:"name" jsonschema:"1-255 characters"`
+	Description *string `json:"description,omitempty"`
 }
 
 type updateProjectInput struct {
-	ProjectID   string  `json:"projectId" jsonschema:"The project UUID"`
-	Name        *string `json:"name,omitempty" jsonschema:"New project name, 1 to 255 characters"`
-	Description *string `json:"description,omitempty" jsonschema:"New description, up to 1000 characters"`
+	ProjectID   string  `json:"projectId"`
+	Name        *string `json:"name,omitempty" jsonschema:"1-255 characters"`
+	Description *string `json:"description,omitempty" jsonschema:"Up to 1000 characters"`
 }
 
 type deleteProjectInput struct {
-	ProjectID   string `json:"projectId" jsonschema:"The project UUID"`
-	ConfirmName string `json:"confirmName" jsonschema:"The project's exact current name, required as confirmation; the delete is refused if it does not match"`
+	ProjectID   string `json:"projectId"`
+	ConfirmName string `json:"confirmName" jsonschema:"Exact current name; a mismatch deletes nothing"`
 }
 
 // projectLifecycleFns is the injectable pipeline, mirroring
@@ -215,11 +215,8 @@ func deleteProjectWithFns(
 // delete_project.
 func RegisterProjectTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "create_project",
-		Description: "Create a new project owned by you. A project is the top-level container for " +
-			"folders, ER diagram whiteboards and canvas boards. Returns the new project, whose id " +
-			"every other tool takes. Use this first when starting from nothing — no role is needed, " +
-			"because there is no project to hold a role on yet.",
+		Name:        "create_project",
+		Description: "Create a project you own (top-level container). Returns its id. No role needed.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createProjectInput) (*mcp.CallToolResult, any, error) {
 		project, err := createProjectWithFns(ctx, prodProjectLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -229,10 +226,8 @@ func RegisterProjectTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "update_project",
-		Description: "Rename a project or change its description. Supply projectId and at least one " +
-			"of name or description. Requires the ADMIN role or higher — the EDITOR role that lets " +
-			"you change a schema is not enough to rename the project holding it.",
+		Name:        "update_project",
+		Description: "Rename a project or change its description. ADMIN role or higher.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateProjectInput) (*mcp.CallToolResult, any, error) {
 		project, err := updateProjectWithFns(ctx, prodProjectLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
@@ -242,12 +237,8 @@ func RegisterProjectTools(s *mcp.Server) {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name: "delete_project",
-		Description: "Permanently delete a project and EVERYTHING in it: every folder, ER whiteboard, " +
-			"canvas board, table, column and relationship. This cannot be undone and is the most " +
-			"destructive tool on this server. Only the project owner may call it. confirmName is " +
-			"required and must equal the project's exact current name — read it with list_projects " +
-			"first. A mismatch deletes nothing.",
+		Name:        "delete_project",
+		Description: "Permanently delete a project and everything in it. Owner only. confirmName must equal the exact current name (see list_projects); a mismatch deletes nothing.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteProjectInput) (*mcp.CallToolResult, any, error) {
 		project, err := deleteProjectWithFns(ctx, prodProjectLifecycleFns(), auth.UserID(ctx), in)
 		if err != nil {
