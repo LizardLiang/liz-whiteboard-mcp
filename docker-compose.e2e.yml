@@ -23,6 +23,11 @@
 #    file changes, update this block. The e2e suite fails loudly if the hook is
 #    missing, which is the tripwire.
 #
+# 3. SEED SCRIPTS MOUNTED. The app's .dockerignore leaves e2e/ out of every
+#    image, but e2e/stack.ts runs the app's seed scripts inside the app
+#    container (`bun run e2e/seed.ts`). The app's e2e/ folder is mounted
+#    read-only so the seeds exist without shipping them in the production image.
+#
 # Bring the e2e stack up (from this directory):
 #   PUBLIC_ORIGIN=http://localhost:18080 \
 #     docker compose -p lizverify -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
@@ -46,6 +51,8 @@ services:
         EXPOSE 3000
         RUN chmod +x /app/entrypoint.sh
         CMD ["/app/entrypoint.sh"]
+    volumes:
+      - ../liz-whiteboard/e2e:/app/e2e:ro
 
   # The renderer is what e2e/board-image-mcp.spec.ts drives through the MCP
   # tools. It builds from the same context as docker-compose.yml; it is restated
