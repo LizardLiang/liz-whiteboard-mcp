@@ -119,14 +119,15 @@ func TestCreateERRow_ColumnLostAckFindsTheStoredColumn(t *testing.T) {
 	assert.Equal(t, testTable, entity.(*data.Column).TableID)
 }
 
-// ALREADY_EXISTS for a row on ANOTHER whiteboard is a collision, never a
-// success: the create the tool asked for did not happen.
-func TestCreateERRow_AlreadyExistsOnAnotherBoardIsAnError(t *testing.T) {
+// The app refuses an id held on ANOTHER whiteboard with its generic create
+// failure (it never says ALREADY_EXISTS for a row the caller cannot see). The
+// re-read finds the row elsewhere: an error, never a success.
+func TestCreateERRow_RowOnAnotherBoardIsAnError(t *testing.T) {
 	s := newERStore()
 	fns := erWriteFns{
 		emit: func(_, event string, payload any) (socket.AckResult, error) {
 			s.persist(otherTestWhiteboard, event, payload.(map[string]any))
-			return alreadyExistsAck, nil
+			return socket.AckResult{"ok": false, "code": "VALIDATION_ERROR", "message": "Failed to create table"}, nil
 		},
 		reads: s.readers(),
 	}
