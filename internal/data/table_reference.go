@@ -82,3 +82,49 @@ func FindReferenceConfirmName(ctx context.Context, tableID string) (*ReferenceCo
 	}
 	return &ReferenceConfirmName{Name: name, IsReference: true}, nil
 }
+
+// ReferenceTarget is what a reference node points at: the source board and
+// table, and the source columns its stub columns stand in for.
+type ReferenceTarget struct {
+	TableID            string
+	WhiteboardID       string
+	SourceWhiteboardID *string
+	SourceTableID      *string
+	// SourceColumnIDs lists each stub column's sourceColumnId in stub order.
+	SourceColumnIDs []string
+}
+
+// FindReferenceTarget reads a reference node's target, or nil when no table
+// carries that id. update_table_reference reads it to tell whether a
+// re-target whose response was lost was applied.
+func FindReferenceTarget(ctx context.Context, tableID string) (*ReferenceTarget, error) {
+	target := ReferenceTarget{TableID: tableID}
+	err := db.Pool().QueryRow(ctx,
+		`SELECT "whiteboardId", "sourceWhiteboardId", "sourceTableId"
+		   FROM "DiagramTable" WHERE "id" = $1`, tableID).
+		Scan(&target.WhiteboardID, &target.SourceWhiteboardID, &target.SourceTableID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	rows, err := db.Pool().Query(ctx,
+		`SELECT "sourceColumnId" FROM "Column"
+		  WHERE "tableId" = $1 AND "sourceColumnId" IS NOT NULL
+		  ORDER BY "order" ASC`, tableID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	target.SourceColumnIDs = []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		target.SourceColumnIDs = append(target.SourceColumnIDs, id)
+	}
+	return &target, rows.Err()
+}

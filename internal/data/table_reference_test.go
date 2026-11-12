@@ -37,6 +37,12 @@ var refTestSchema = []string{
 		"sourceTableId"      TEXT,
 		"createdAt"          DATETIME NOT NULL,
 		"updatedAt"          DATETIME NOT NULL)`,
+	`CREATE TABLE "Column" (
+		"id"             TEXT NOT NULL PRIMARY KEY,
+		"tableId"        TEXT NOT NULL,
+		"name"           TEXT NOT NULL,
+		"order"          INTEGER NOT NULL DEFAULT 0,
+		"sourceColumnId" TEXT)`,
 }
 
 const (
@@ -193,4 +199,32 @@ func TestFindReferenceConfirmNameReturnsNilForUnknownID(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Nil(t, got)
+}
+
+func TestFindReferenceTargetReadsSourceAndStubColumns(t *testing.T) {
+	ctx := newReferenceTestDB(t)
+	trInsertTable(t, ctx, trRefNode, trLocalBoard, "orders", trSourceBoard, trSourceTable)
+	trExec(t, ctx, `INSERT INTO "Column" ("id","tableId","name","order","sourceColumnId") VALUES
+		('c2', ?, 'b', 1, 'src-b'), ('c1', ?, 'a', 0, 'src-a'), ('c3', ?, 'own', 2, NULL)`,
+		trRefNode, trRefNode, trRefNode)
+
+	target, err := FindReferenceTarget(ctx, trRefNode)
+
+	require.NoError(t, err)
+	require.NotNil(t, target)
+	assert.Equal(t, trLocalBoard, target.WhiteboardID)
+	require.NotNil(t, target.SourceWhiteboardID)
+	assert.Equal(t, trSourceBoard, *target.SourceWhiteboardID)
+	require.NotNil(t, target.SourceTableID)
+	assert.Equal(t, trSourceTable, *target.SourceTableID)
+	assert.Equal(t, []string{"src-a", "src-b"}, target.SourceColumnIDs)
+}
+
+func TestFindReferenceTargetReturnsNilForUnknownID(t *testing.T) {
+	ctx := newReferenceTestDB(t)
+
+	target, err := FindReferenceTarget(ctx, trRefNode)
+
+	require.NoError(t, err)
+	assert.Nil(t, target)
 }

@@ -53,6 +53,9 @@ func tableReferenceFnsRefusing(t *testing.T) tableReferenceFns {
 		},
 		// No reference node exists: a refused create reads nothing back.
 		findTable: func(context.Context, string) (*data.DiagramTable, error) { return nil, nil },
+		referenceTarget: func(context.Context, string) (*data.ReferenceTarget, error) {
+			return nil, nil
+		},
 	}
 }
 
@@ -184,10 +187,13 @@ func TestCreateTableReferenceLostResponseThatLandedSucceeds(t *testing.T) {
 	assert.Equal(t, refLocalBoardID, table.WhiteboardID)
 }
 
-func TestCreateTableReferenceAlreadyExistsOnAnotherBoardIsAnError(t *testing.T) {
+// The app answers an id held on another whiteboard with its generic 500, which
+// the client maps to CONNECTION_ERROR. The re-read finds the row elsewhere: an
+// error, never a success.
+func TestCreateTableReferenceRowOnAnotherBoardIsAnError(t *testing.T) {
 	fns := tableReferenceFnsRefusing(t)
 	fns.createReference = func(context.Context, string, appapi.CreateTableReferenceRequest) (map[string]any, error) {
-		return nil, mcperr.New(mcperr.AlreadyExists, "a table with this id already exists")
+		return nil, mcperr.New(mcperr.ConnectionError, "The app returned HTTP 500 for a table reference request.")
 	}
 	fns.findTable = func(_ context.Context, id string) (*data.DiagramTable, error) {
 		return &data.DiagramTable{ID: id, WhiteboardID: refSourceBoardID}, nil
@@ -415,4 +421,100 @@ func TestListTableReferencesPropagatesRouteErrors(t *testing.T) {
 
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "no access"))
+}
+
+// ── lost responses on update and delete ─────────────────────────────────────
+
+func lostResponse() error {
+	return mcperr.New(mcperr.ConnectionError, "The app returned HTTP 502 for a table reference request.")
+}
+
+func TestUpdateTableReferenceLostResponseThatLandedIsApplied(t *testing.T) {
+	nextTable := refSourceTableID
+	fns := tableReferenceFnsRefusing(t)
+	fns.updateReference = func(context.Context, string, string, appapi.UpdateTableReferenceRequest) (*appapi.UpdateTableReferenceResult, error) {
+		return nil, lostResponse()
+	}
+	fns.referenceTarget = func(_ context.Context, id string) (*data.ReferenceTarget, error) {
+		board := refSourceBoardID
+		return &data.ReferenceTarget{TableID: id, SourceWhiteboardID: &board,
+			SourceTableID: &nextTable, SourceColumnIDs: []string{refColumnID}}, nil
+	}
+
+	out, err := updateTableReferenceWithFns(context.Background(), fns, "user-1", updateTableReferenceInput{
+		TableID: refNodeID, SourceTableID: &nextTable, SourceColumnIDs: []string{refColumnID},
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, out["reference"])
+	assert.Contains(t, out["note"], "not known")
+}
+
+func TestUpdateTableReferenceLostResponseNotLandedIsUnknown(t *testing.T) {
+	nextTable := refSourceTableID
+	oldTable := "99990000-1111-4222-8333-444455556666"
+	fns := tableReferenceFnsRefusing(t)
+	fns.updateReference = func(context.Context, string, string, appapi.UpdateTableReferenceRequest) (*appapi.UpdateTableReferenceResult, error) {
+		return nil, lostResponse()
+	}
+	fns.referenceTarget = func(_ context.Context, id string) (*data.ReferenceTarget, error) {
+		return &data.ReferenceTarget{TableID: id, SourceTableID: &oldTable}, nil
+	}
+
+	_, err := updateTableReferenceWithFns(context.Background(), fns, "user-1", updateTableReferenceInput{
+		TableID: refNodeID, SourceTableID: &nextTable,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Outcome unknown")
+	assert.Contains(t, err.Error(), refNodeID)
+}
+
+// An answer from the app (here a 400) is not a lost response: no re-read.
+func TestUpdateTableReferenceAppRefusalIsNotReRead(t *testing.T) {
+	nextTable := refSourceTableID
+	fns := tableReferenceFnsRefusing(t)
+	fns.updateReference = func(context.Context, string, string, appapi.UpdateTableReferenceRequest) (*appapi.UpdateTableReferenceResult, error) {
+		return nil, mcperr.New(mcperr.ValidationError, "must be in the same project")
+	}
+	fns.referenceTarget = func(context.Context, string) (*data.ReferenceTarget, error) {
+		t.Error("referenceTarget read after an app answer")
+		return nil, nil
+	}
+
+	_, err := updateTableReferenceWithFns(context.Background(), fns, "user-1", updateTableReferenceInput{
+		TableID: refNodeID, SourceTableID: &nextTable,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "same project")
+}
+
+func TestDeleteTableReferenceLostResponse(t *testing.T) {
+	for name, present := range map[string]bool{"gone is applied": false, "present is unknown": true} {
+		t.Run(name, func(t *testing.T) {
+			fns := tableReferenceFnsRefusing(t)
+			fns.confirmNameOf = referenceNamed("orders")
+			fns.deleteReference = func(context.Context, string, string) (map[string]any, error) {
+				return nil, lostResponse()
+			}
+			fns.findTable = func(_ context.Context, id string) (*data.DiagramTable, error) {
+				if present {
+					return &data.DiagramTable{ID: id}, nil
+				}
+				return nil, nil
+			}
+
+			out, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+				deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+			if present {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "Outcome unknown")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, refNodeID, out["id"])
+		})
+	}
 }

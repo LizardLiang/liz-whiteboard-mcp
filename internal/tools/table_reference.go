@@ -85,6 +85,9 @@ type tableReferenceFns struct {
 	// findTable reads a reference node's DiagramTable row by id, to resolve a
 	// create whose response was lost (idempotent.go).
 	findTable func(ctx context.Context, id string) (*data.DiagramTable, error)
+	// referenceTarget reads what a reference node points at, to resolve a
+	// re-target whose response was lost.
+	referenceTarget func(ctx context.Context, tableID string) (*data.ReferenceTarget, error)
 }
 
 // prodTableReferenceFns is the production pipeline.
@@ -96,6 +99,7 @@ func prodTableReferenceFns() tableReferenceFns {
 		listReferences:  appapi.ListTableReferences,
 		confirmNameOf:   data.FindReferenceConfirmName,
 		findTable:       data.FindDiagramTableByID,
+		referenceTarget: data.FindReferenceTarget,
 	}
 }
 
@@ -240,6 +244,24 @@ func updateTableReferenceWithFns(
 		SourceTableID:      in.SourceTableID,
 		SourceColumnIDs:    in.SourceColumnIDs,
 	})
+	if err != nil && isLostResponse(err) {
+		entity, e := resolveOpAfterEmitError(err, "re-target of table reference "+in.TableID,
+			"list_table_references", func() (any, bool, error) {
+				target, rerr := fns.referenceTarget(ctx, in.TableID)
+				if rerr != nil || target == nil {
+					return nil, false, rerr
+				}
+				return map[string]any{
+					"reference": target,
+					"note":      "Re-targeted; the response was lost, so the count of deleted relationships is not known.",
+				}, referenceShowsUpdate(target, in), nil
+			})
+		if e != nil {
+			return nil, e
+		}
+		out, _ := entity.(map[string]any)
+		return out, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +317,57 @@ func deleteTableReferenceWithFns(
 				"its exact sourceTableName.", in.TableID), "confirmName")
 	}
 
-	return fns.deleteReference(ctx, userID, in.TableID)
+	deleted, err := fns.deleteReference(ctx, userID, in.TableID)
+	if err != nil && isLostResponse(err) {
+		entity, e := resolveOpAfterEmitError(err, "delete of table reference "+in.TableID,
+			"list_table_references", deletedCheck(func(id string) (*data.DiagramTable, error) {
+				return fns.findTable(ctx, id)
+			}, in.TableID))
+		if e != nil {
+			return nil, e
+		}
+		out, _ := entity.(map[string]any)
+		return out, nil
+	}
+	return deleted, err
+}
+
+// isLostResponse reports whether a reference route call ended without a
+// readable answer from the app (CONNECTION_ERROR: no response, a 5xx, an
+// unreadable body), so the change may or may not have been applied.
+func isLostResponse(err error) bool {
+	var me *mcperr.McpError
+	return !errors.As(err, &me) || me.Code == mcperr.ConnectionError
+}
+
+// referenceShowsUpdate reports whether a stored reference points where an
+// update_table_reference call asked. The app replaces the stub columns with
+// exactly the requested source columns, in any order.
+func referenceShowsUpdate(target *data.ReferenceTarget, in updateTableReferenceInput) bool {
+	if in.SourceWhiteboardID != nil && (target.SourceWhiteboardID == nil ||
+		*target.SourceWhiteboardID != *in.SourceWhiteboardID) {
+		return false
+	}
+	if in.SourceTableID != nil && (target.SourceTableID == nil ||
+		*target.SourceTableID != *in.SourceTableID) {
+		return false
+	}
+	if len(in.SourceColumnIDs) == 0 {
+		return true
+	}
+	if len(target.SourceColumnIDs) != len(in.SourceColumnIDs) {
+		return false
+	}
+	want := make(map[string]bool, len(in.SourceColumnIDs))
+	for _, id := range in.SourceColumnIDs {
+		want[id] = true
+	}
+	for _, id := range target.SourceColumnIDs {
+		if !want[id] {
+			return false
+		}
+	}
+	return true
 }
 
 // listTableReferencesWithFns validates and lists.
