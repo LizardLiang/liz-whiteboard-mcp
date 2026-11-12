@@ -160,5 +160,13 @@ func resolveDeleteNotFound(ack socket.AckResult, check opCheck) socket.AckResult
 	if err != nil || !applied {
 		return ack
 	}
-	return socket.AckResult{"ok": true, "entity": entity}
+	return socket.AckResult{"ok": true, "entity": entity, ackResolvedByReread: true}
 }
+
+// ackResolvedByReread marks a synthesized ack: the app's ack was lost or came
+// back NOT_FOUND, and the re-read proved the op applied. Such an ack carries no
+// cascade counts.
+const ackResolvedByReread = "resolvedByReread"
+
+// cascadeUnknownNote is the result note for a delete resolved by a re-read.
+const cascadeUnknownNote = "deleted; the acknowledgement was lost, so cascade counts are not known"

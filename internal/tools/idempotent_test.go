@@ -409,3 +409,28 @@ func TestResolveDeleteNotFound(t *testing.T) {
 	assert.Equal(t, forbidden, resolveDeleteNotFound(forbidden, gone))
 	assert.Equal(t, ok, resolveDeleteNotFound(ok, gone))
 }
+
+// A delete the re-read resolved carries no cascade counts, so the result of
+// delete_table and delete_column says the counts are unknown.
+func TestDeleteResults_NoteWhenTheRereadResolvedTheDelete(t *testing.T) {
+	real := socket.AckResult{"ok": true, "cascade": map[string]any{"columns": 2.0, "relationships": 1.0}}
+	resolved := socket.AckResult{"ok": true, "entity": map[string]any{"id": "x"}, ackResolvedByReread: true}
+
+	assert.NotContains(t, tableDeleteResult(real, "x"), "note")
+	assert.Contains(t, tableDeleteResult(real, "x")["warning"], "2 column(s)")
+	assert.Equal(t, cascadeUnknownNote, tableDeleteResult(resolved, "x")["note"])
+	assert.Equal(t, cascadeUnknownNote, columnDeleteResult(resolved, "x")["note"])
+	assert.NotContains(t, columnDeleteResult(real, "x"), "note")
+}
+
+// emitDelete and resolveDeleteNotFound mark the acks they synthesize.
+func TestSynthesizedAcksAreMarked(t *testing.T) {
+	notFound := socket.AckResult{"ok": false, "code": "NOT_FOUND"}
+	gone := func() (any, bool, error) { return map[string]any{"id": "x"}, true, nil }
+	assert.Equal(t, true, resolveDeleteNotFound(notFound, gone)[ackResolvedByReread])
+
+	fns := lostEmitFns(erReaders{})
+	ack, err := emitOp(fns, pinBoard, "table:delete", nil, "delete of table x", gone)
+	require.NoError(t, err)
+	assert.Equal(t, true, ack[ackResolvedByReread])
+}

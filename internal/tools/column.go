@@ -11,6 +11,7 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/schema"
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
 type createColumnInput struct {
@@ -250,19 +251,7 @@ func registerDeleteColumn(s *mcp.Server) {
 			return mcpError(mcperr.AckCodeToMcpCode(ack.Code()), msgOr(ack.Message(), "Server rejected column deletion."))
 		}
 
-		cascadeVal := ack["cascade"]
-		var warnings []string
-		if n := cascadeCount(cascadeVal, "relationships"); n > 0 {
-			warnings = append(warnings, fmt.Sprintf("%d relationship(s) deleted", n))
-		}
-		out := map[string]any{"id": in.ColumnID}
-		if cascadeVal != nil {
-			out["cascade"] = cascadeVal
-		}
-		if len(warnings) > 0 {
-			out["warning"] = "Cascade deleted: " + strings.Join(warnings, ", ") + "."
-		}
-		return success(out)
+		return success(columnDeleteResult(ack, in.ColumnID))
 	})
 }
 
@@ -316,4 +305,25 @@ func registerReorderColumns(s *mcp.Server) {
 		}
 		return success(map[string]any{"tableId": in.TableID, "orderedColumnIds": in.OrderedColumnIDs})
 	})
+}
+
+// columnDeleteResult builds the result of a delete from its ack. An ack the re-read
+// synthesized has no cascade counts, so the result says so.
+func columnDeleteResult(ack socket.AckResult, id string) map[string]any {
+	cascadeVal := ack["cascade"]
+	var warnings []string
+	if n := cascadeCount(cascadeVal, "relationships"); n > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d relationship(s) deleted", n))
+	}
+	out := map[string]any{"id": id}
+	if cascadeVal != nil {
+		out["cascade"] = cascadeVal
+	}
+	if len(warnings) > 0 {
+		out["warning"] = "Cascade deleted: " + strings.Join(warnings, ", ") + "."
+	}
+	if resolved, _ := ack[ackResolvedByReread].(bool); resolved {
+		out["note"] = cascadeUnknownNote
+	}
+	return out
 }

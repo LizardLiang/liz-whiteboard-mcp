@@ -115,7 +115,7 @@ func emitOp(fns erWriteFns, whiteboardID, event string, payload any, what string
 	if e != nil {
 		return nil, e
 	}
-	return socket.AckResult{"ok": true, "entity": entity}, nil
+	return socket.AckResult{"ok": true, "entity": entity, ackResolvedByReread: true}, nil
 }
 
 // emitDelete emits one ER delete of a row the tool's pre-read found. It is

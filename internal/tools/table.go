@@ -10,6 +10,7 @@ import (
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/auth"
 	"github.com/LizardLiang/liz-whiteboard-mcp/internal/data"
 	mcperr "github.com/LizardLiang/liz-whiteboard-mcp/internal/errors"
+	"github.com/LizardLiang/liz-whiteboard-mcp/internal/socket"
 )
 
 type createTableInput struct {
@@ -291,22 +292,7 @@ func registerDeleteTable(s *mcp.Server) {
 			return mcpError(mcperr.AckCodeToMcpCode(ack.Code()), msgOr(ack.Message(), "Server rejected table deletion."))
 		}
 
-		cascadeVal := ack["cascade"]
-		var warnings []string
-		if n := cascadeCount(cascadeVal, "columns"); n > 0 {
-			warnings = append(warnings, fmt.Sprintf("%d column(s) deleted", n))
-		}
-		if n := cascadeCount(cascadeVal, "relationships"); n > 0 {
-			warnings = append(warnings, fmt.Sprintf("%d relationship(s) deleted", n))
-		}
-		out := map[string]any{"id": in.TableID}
-		if cascadeVal != nil {
-			out["cascade"] = cascadeVal
-		}
-		if len(warnings) > 0 {
-			out["warning"] = "Cascade deleted: " + strings.Join(warnings, ", ") + "."
-		}
-		return success(out)
+		return success(tableDeleteResult(ack, in.TableID))
 	})
 }
 
@@ -316,4 +302,28 @@ func msgOr(msg, fallback string) string {
 		return fallback
 	}
 	return msg
+}
+
+// tableDeleteResult builds the result of a delete from its ack. An ack the re-read
+// synthesized has no cascade counts, so the result says so.
+func tableDeleteResult(ack socket.AckResult, id string) map[string]any {
+	cascadeVal := ack["cascade"]
+	var warnings []string
+	if n := cascadeCount(cascadeVal, "columns"); n > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d column(s) deleted", n))
+	}
+	if n := cascadeCount(cascadeVal, "relationships"); n > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d relationship(s) deleted", n))
+	}
+	out := map[string]any{"id": id}
+	if cascadeVal != nil {
+		out["cascade"] = cascadeVal
+	}
+	if len(warnings) > 0 {
+		out["warning"] = "Cascade deleted: " + strings.Join(warnings, ", ") + "."
+	}
+	if resolved, _ := ack[ackResolvedByReread].(bool); resolved {
+		out["note"] = cascadeUnknownNote
+	}
+	return out
 }
