@@ -40,6 +40,10 @@ type McpError struct {
 	Code    Code
 	Message string
 	Field   string
+	// NoResponse is true when a request left this process but no HTTP status
+	// came back (a transport failure or a timeout), so the write may or may
+	// not have landed. It is never set for an answer from the app.
+	NoResponse bool
 }
 
 // Error implements the error interface.
@@ -50,6 +54,12 @@ func (e *McpError) Error() string {
 // New creates a new McpError.
 func New(code Code, message string) *McpError {
 	return &McpError{Code: code, Message: message}
+}
+
+// NewNoResponse creates a CONNECTION_ERROR for a request that got no HTTP
+// status back (McpError.NoResponse).
+func NewNoResponse(message string) *McpError {
+	return &McpError{Code: ConnectionError, Message: message, NoResponse: true}
 }
 
 // NewField creates a new McpError with a field.

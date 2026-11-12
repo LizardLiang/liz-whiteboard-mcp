@@ -235,7 +235,7 @@ func postReference(
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, mcperr.New(mcperr.ConnectionError,
+		return nil, mcperr.NewNoResponse(
 			fmt.Sprintf("Cannot reach the liz-whiteboard app at %s. "+
 				"Start the app, or set LIZ_MCP_TABLE_REFERENCE_API_URL to its address.", url))
 	}

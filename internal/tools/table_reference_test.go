@@ -24,6 +24,7 @@ const (
 	refSourceTableID = "cccc0000-1111-4222-8333-444455556666"
 	refColumnID      = "dddd0000-1111-4222-8333-444455556666"
 	refNodeID        = "eeee0000-1111-4222-8333-444455556666"
+	refProjectID     = "ffff0000-1111-4222-8333-444455556666"
 )
 
 // tableReferenceFnsRefusing fails the test if any route call happens. Guard
@@ -56,6 +57,10 @@ func tableReferenceFnsRefusing(t *testing.T) tableReferenceFns {
 		referenceTarget: func(context.Context, string) (*data.ReferenceTarget, error) {
 			return nil, nil
 		},
+		// The caller is an editor on the node's project unless a test says otherwise.
+		tableProject: func(context.Context, string) (string, error) { return refProjectID, nil },
+		assertAccess: func(context.Context, string, string) error { return nil },
+		assertEdit:   func(context.Context, string, string) error { return nil },
 	}
 }
 
@@ -426,7 +431,7 @@ func TestListTableReferencesPropagatesRouteErrors(t *testing.T) {
 // ── lost responses on update and delete ─────────────────────────────────────
 
 func lostResponse() error {
-	return mcperr.New(mcperr.ConnectionError, "The app returned HTTP 502 for a table reference request.")
+	return mcperr.NewNoResponse("Cannot reach the liz-whiteboard app.")
 }
 
 func TestUpdateTableReferenceLostResponseThatLandedIsApplied(t *testing.T) {
@@ -517,4 +522,137 @@ func TestDeleteTableReferenceLostResponse(t *testing.T) {
 			assert.Equal(t, refNodeID, out["id"])
 		})
 	}
+}
+
+// ── access: a node the caller cannot see ────────────────────────────────────
+
+func noProjectAccess(context.Context, string, string) error {
+	return mcperr.New(mcperr.Forbidden, "User user-1 has no access to project.")
+}
+
+// A caller with no access to the node's project gets the same NOT_FOUND as a
+// missing id, before any name read: the answer does not reveal that the id
+// exists or what kind of table it is.
+func TestDeleteTableReferenceUnseenNodeIsNotFoundBeforeAnyRead(t *testing.T) {
+	missing := tableReferenceFnsRefusing(t)
+	missing.tableProject = func(context.Context, string) (string, error) { return "", nil }
+	_, missingErr := deleteTableReferenceWithFns(context.Background(), missing, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+	unseen := tableReferenceFnsRefusing(t)
+	unseen.assertAccess = noProjectAccess
+	_, unseenErr := deleteTableReferenceWithFns(context.Background(), unseen, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+	requireMcpCode(t, unseenErr, mcperr.NotFound)
+	requireMcpCode(t, missingErr, mcperr.NotFound)
+	assert.Equal(t, missingErr.Error(), unseenErr.Error())
+}
+
+// A member below EDITOR can see the node, so a role refusal reveals nothing.
+func TestDeleteTableReferenceViewerIsForbiddenBeforeAnyRead(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	fns.assertEdit = func(context.Context, string, string) error {
+		return mcperr.New(mcperr.Forbidden, "User user-1 does not have EDITOR access.")
+	}
+
+	_, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+	requireMcpCode(t, err, mcperr.Forbidden)
+}
+
+func TestUpdateTableReferenceUnseenNodeIsNotFoundBeforeTheRoute(t *testing.T) {
+	nextTable := refSourceTableID
+	fns := tableReferenceFnsRefusing(t)
+	fns.assertAccess = noProjectAccess
+
+	_, err := updateTableReferenceWithFns(context.Background(), fns, "user-1", updateTableReferenceInput{
+		TableID: refNodeID, SourceTableID: &nextTable,
+	})
+
+	requireMcpCode(t, err, mcperr.NotFound)
+	assert.Equal(t, "Table reference "+refNodeID+" not found.", err.Error())
+}
+
+// Access lost between the send and the re-read: the re-read reports nothing
+// of the row, only "Outcome unknown".
+func TestUpdateTableReferenceReReadNeedsAccess(t *testing.T) {
+	nextTable := refSourceTableID
+	fns := tableReferenceFnsRefusing(t)
+	gate := 0
+	fns.assertAccess = func(context.Context, string, string) error {
+		gate++
+		if gate > 1 {
+			return noProjectAccess(nil, "", "")
+		}
+		return nil
+	}
+	fns.updateReference = func(context.Context, string, string, appapi.UpdateTableReferenceRequest) (*appapi.UpdateTableReferenceResult, error) {
+		return nil, lostResponse()
+	}
+	fns.referenceTarget = func(_ context.Context, id string) (*data.ReferenceTarget, error) {
+		board := refSourceBoardID
+		return &data.ReferenceTarget{TableID: id, WhiteboardID: refLocalBoardID, SourceWhiteboardID: &board,
+			SourceTableID: &nextTable, SourceColumnIDs: []string{refColumnID}}, nil
+	}
+
+	out, err := updateTableReferenceWithFns(context.Background(), fns, "user-1", updateTableReferenceInput{
+		TableID: refNodeID, SourceTableID: &nextTable,
+	})
+
+	require.Error(t, err)
+	assert.Nil(t, out)
+	assert.Contains(t, err.Error(), "Outcome unknown")
+	assert.NotContains(t, err.Error(), refLocalBoardID)
+	assert.NotContains(t, err.Error(), refSourceBoardID)
+}
+
+// Only a request that got no HTTP status back is re-read. An answer from the
+// app (403, 404, 429, 5xx, an unreadable body) and an error of unknown origin
+// are reported as they are.
+func TestUpdateTableReferenceOnlyANoResponseIsReRead(t *testing.T) {
+	answers := map[string]error{
+		"forbidden":   mcperr.New(mcperr.Forbidden, "no write access"),
+		"not found":   mcperr.New(mcperr.NotFound, "Table reference not found."),
+		"rate limit":  mcperr.New(mcperr.ConnectionError, "The liz-whiteboard app is rate limiting this server."),
+		"http 502":    mcperr.New(mcperr.ConnectionError, "The app returned HTTP 502 for a table reference request."),
+		"unreadable":  mcperr.New(mcperr.ConnectionError, "The app returned an unreadable table reference response."),
+		"plain error": errors.New("boom"),
+	}
+	for name, answer := range answers {
+		t.Run(name, func(t *testing.T) {
+			nextTable := refSourceTableID
+			fns := tableReferenceFnsRefusing(t)
+			fns.updateReference = func(context.Context, string, string, appapi.UpdateTableReferenceRequest) (*appapi.UpdateTableReferenceResult, error) {
+				return nil, answer
+			}
+			fns.referenceTarget = func(context.Context, string) (*data.ReferenceTarget, error) {
+				t.Error("referenceTarget read after an answer from the app")
+				return nil, nil
+			}
+
+			_, err := updateTableReferenceWithFns(context.Background(), fns, "user-1", updateTableReferenceInput{
+				TableID: refNodeID, SourceTableID: &nextTable,
+			})
+
+			assert.Equal(t, answer, err)
+		})
+	}
+}
+
+func TestDeleteTableReferenceOnlyANoResponseIsReRead(t *testing.T) {
+	answer := mcperr.New(mcperr.ConnectionError, "The app returned HTTP 502 for a table reference request.")
+	fns := tableReferenceFnsRefusing(t)
+	fns.confirmNameOf = referenceNamed("orders")
+	fns.deleteReference = func(context.Context, string, string) (map[string]any, error) { return nil, answer }
+	fns.findTable = func(context.Context, string) (*data.DiagramTable, error) {
+		t.Error("findTable read after an answer from the app")
+		return nil, nil
+	}
+
+	_, err := deleteTableReferenceWithFns(context.Background(), fns, "user-1",
+		deleteTableReferenceInput{TableID: refNodeID, ConfirmName: "orders"})
+
+	assert.Equal(t, error(answer), err)
 }

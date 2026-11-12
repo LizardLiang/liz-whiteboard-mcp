@@ -11,7 +11,8 @@
 //
 // AUTHORIZATION. EDITOR or higher for create, update and delete; VIEWER for
 // list. Same-project scope is enforced by the app, which can see both boards'
-// projects — this layer cannot, and does not pretend to.
+// projects. Update and delete also run authorizeNode here, before any read of
+// the node, so a node the caller cannot see answers NOT_FOUND like a missing id.
 //
 // DESTRUCTIVE GUARDS. Two of these tools destroy relationships:
 //
@@ -88,6 +89,11 @@ type tableReferenceFns struct {
 	// referenceTarget reads what a reference node points at, to resolve a
 	// re-target whose response was lost.
 	referenceTarget func(ctx context.Context, tableID string) (*data.ReferenceTarget, error)
+	// tableProject, assertAccess and assertEdit gate update and delete on the
+	// reference node's project (authorizeNode).
+	tableProject func(ctx context.Context, tableID string) (string, error)
+	assertAccess func(ctx context.Context, userID, projectID string) error
+	assertEdit   func(ctx context.Context, userID, projectID string) error
 }
 
 // prodTableReferenceFns is the production pipeline.
@@ -100,6 +106,9 @@ func prodTableReferenceFns() tableReferenceFns {
 		confirmNameOf:   data.FindReferenceConfirmName,
 		findTable:       data.FindDiagramTableByID,
 		referenceTarget: data.FindReferenceTarget,
+		tableProject:    data.GetTableProjectID,
+		assertAccess:    auth.AssertProjectAccess,
+		assertEdit:      auth.AssertSchemaEditAccess,
 	}
 }
 
@@ -239,6 +248,10 @@ func updateTableReferenceWithFns(
 			"sourceTableId")
 	}
 
+	if err := fns.authorizeNode(ctx, userID, in.TableID); err != nil {
+		return nil, err
+	}
+
 	result, err := fns.updateReference(ctx, userID, in.TableID, appapi.UpdateTableReferenceRequest{
 		SourceWhiteboardID: in.SourceWhiteboardID,
 		SourceTableID:      in.SourceTableID,
@@ -247,6 +260,11 @@ func updateTableReferenceWithFns(
 	if err != nil && isLostResponse(err) {
 		entity, e := resolveOpAfterEmitError(err, "re-target of table reference "+in.TableID,
 			"list_table_references", func() (any, bool, error) {
+				// The re-read runs the gate again: a caller who lost access
+				// since the send learns nothing of the node.
+				if fns.authorizeNode(ctx, userID, in.TableID) != nil {
+					return nil, false, nil
+				}
 				target, rerr := fns.referenceTarget(ctx, in.TableID)
 				if rerr != nil || target == nil {
 					return nil, false, rerr
@@ -297,13 +315,18 @@ func deleteTableReferenceWithFns(
 				"Read it with list_table_references first.", "confirmName")
 	}
 
+	// The gate runs before the name read: the name checks below tell a missing
+	// id, an ordinary table and a wrong name apart, which only a caller who
+	// can see the node may learn.
+	if err := fns.authorizeNode(ctx, userID, in.TableID); err != nil {
+		return nil, err
+	}
 	expected, err := fns.confirmNameOf(ctx, in.TableID)
 	if err != nil {
 		return nil, err
 	}
 	if expected == nil {
-		return nil, mcperr.New(mcperr.NotFound,
-			fmt.Sprintf("Table reference %s not found.", in.TableID))
+		return nil, referenceNotFound(in.TableID)
 	}
 	if !expected.IsReference {
 		return nil, mcperr.NewField(mcperr.ValidationError,
@@ -332,12 +355,42 @@ func deleteTableReferenceWithFns(
 	return deleted, err
 }
 
-// isLostResponse reports whether a reference route call ended without a
-// readable answer from the app (CONNECTION_ERROR: no response, a 5xx, an
-// unreadable body), so the change may or may not have been applied.
+// isLostResponse reports whether a reference route call got no HTTP status
+// back (McpError.NoResponse: a transport failure or a timeout), so the change
+// may or may not have been applied. Every answer from the app (a 403, a 404, a
+// 429, a 5xx, an unreadable body) and an error of unknown origin is reported
+// as it is, without a re-read.
 func isLostResponse(err error) bool {
 	var me *mcperr.McpError
-	return !errors.As(err, &me) || me.Code == mcperr.ConnectionError
+	return errors.As(err, &me) && me.NoResponse
+}
+
+// referenceNotFound is the one NOT_FOUND answer for a reference node that is
+// missing or that the caller cannot see.
+func referenceNotFound(tableID string) *mcperr.McpError {
+	return mcperr.New(mcperr.NotFound, fmt.Sprintf("Table reference %s not found.", tableID))
+}
+
+// authorizeNode gates update and delete on the reference node's project:
+// EDITOR or higher, the same gate as the other schema writes. A node the
+// caller has no access to gets the same NOT_FOUND as a missing id, so the
+// answer does not reveal that the id exists.
+func (fns tableReferenceFns) authorizeNode(ctx context.Context, userID, tableID string) error {
+	projectID, err := fns.tableProject(ctx, tableID)
+	if err != nil {
+		return err
+	}
+	if projectID == "" {
+		return referenceNotFound(tableID)
+	}
+	if err := fns.assertAccess(ctx, userID, projectID); err != nil {
+		var me *mcperr.McpError
+		if errors.As(err, &me) && me.Code == mcperr.Forbidden {
+			return referenceNotFound(tableID)
+		}
+		return err
+	}
+	return fns.assertEdit(ctx, userID, projectID)
 }
 
 // referenceShowsUpdate reports whether a stored reference points where an
