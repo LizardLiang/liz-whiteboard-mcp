@@ -12,8 +12,8 @@
 // NewStubVerifier() is DEV-ONLY:
 //   - INERT/refuses by default in any normal or production run.
 //   - Only accepts a single hardcoded developer test token when BOTH:
-//       MCP_DEV_AUTH=stub   (explicit opt-in; must never be set in production)
-//       MCP_DEV_STUB_TOKEN=<token>   (the specific token to accept)
+//     MCP_DEV_AUTH=stub   (explicit opt-in; must never be set in production)
+//     MCP_DEV_STUB_TOKEN=<token>   (the specific token to accept)
 //   - Returns TokenInfo{UserID: MCP_DEV_USER_ID (or "dev-user" if unset)}.
 //
 // WARNING: Do NOT set MCP_DEV_AUTH=stub in production or staging environments.

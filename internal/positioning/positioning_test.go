@@ -55,10 +55,10 @@ func TestComputeFromCount_NoOverlap(t *testing.T) {
 func TestComputeDefaultPosition(t *testing.T) {
 	fetcher := func(_ context.Context, _ string) ([]Rect, error) {
 		return []Rect{
-			{X: 40, Y: 40, W: 280, H: 220},   // slot 0
-			{X: 320, Y: 40, W: 280, H: 220},  // slot 1
-			{X: 600, Y: 40, W: 280, H: 220},  // slot 2
-			{X: 880, Y: 40, W: 280, H: 220},  // slot 3
+			{X: 40, Y: 40, W: 280, H: 220},  // slot 0
+			{X: 320, Y: 40, W: 280, H: 220}, // slot 1
+			{X: 600, Y: 40, W: 280, H: 220}, // slot 2
+			{X: 880, Y: 40, W: 280, H: 220}, // slot 3
 		}, nil
 	}
 	x, y, err := ComputeDefaultPosition(context.Background(), "wb", fetcher)
@@ -78,11 +78,11 @@ func TestComputeDefaultPosition(t *testing.T) {
 // return (600, 40).
 func TestComputeFromRects_DeletedTableCollision(t *testing.T) {
 	existing := []Rect{
-		{X: 40, Y: 40, W: 280, H: 220},   // slot 0
-		{X: 320, Y: 40, W: 280, H: 220},  // slot 1
+		{X: 40, Y: 40, W: 280, H: 220},  // slot 0
+		{X: 320, Y: 40, W: 280, H: 220}, // slot 1
 		// slot 2 deleted — gap here
-		{X: 880, Y: 40, W: 280, H: 220},  // slot 3
-		{X: 40, Y: 260, W: 280, H: 220},  // slot 4
+		{X: 880, Y: 40, W: 280, H: 220}, // slot 3
+		{X: 40, Y: 260, W: 280, H: 220}, // slot 4
 	}
 	x, y := ComputeFromRects(existing)
 	assert.Equal(t, 600.0, x, "should fill the gap at slot 2 (x)")
