@@ -39,3 +39,25 @@ func CountColumnsByTableID(ctx context.Context, tableID string) (int, error) {
 	}
 	return n, nil
 }
+
+// ListColumnsByTableID returns a table's columns in display order.
+func ListColumnsByTableID(ctx context.Context, tableID string) ([]Column, error) {
+	rows, err := db.Pool().Query(ctx,
+		`SELECT id, "tableId", name, "dataType", "isPrimaryKey", "isForeignKey", "isUnique", "isNullable", description, "order", "createdAt", "updatedAt"
+		   FROM "Column" WHERE "tableId" = $1 ORDER BY "order" ASC`, tableID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns := []Column{}
+	for rows.Next() {
+		var c Column
+		if err := rows.Scan(&c.ID, &c.TableID, &c.Name, &c.DataType,
+			&c.IsPrimaryKey, &c.IsForeignKey, &c.IsUnique, &c.IsNullable,
+			&c.Description, &c.Order, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, err
+		}
+		columns = append(columns, c)
+	}
+	return columns, rows.Err()
+}

@@ -53,7 +53,8 @@ func tableReferenceFnsRefusing(t *testing.T) tableReferenceFns {
 			return nil, nil
 		},
 		// No reference node exists: a refused create reads nothing back.
-		findTable: func(context.Context, string) (*data.DiagramTable, error) { return nil, nil },
+		findTable:   func(context.Context, string) (*data.DiagramTable, error) { return nil, nil },
+		findColumns: func(context.Context, string) ([]data.Column, error) { return []data.Column{}, nil },
 		referenceTarget: func(context.Context, string) (*data.ReferenceTarget, error) {
 			return nil, nil
 		},
@@ -190,6 +191,22 @@ func TestCreateTableReferenceLostResponseThatLandedSucceeds(t *testing.T) {
 	table, ok := out["table"].(*data.DiagramTable)
 	require.True(t, ok)
 	assert.Equal(t, refLocalBoardID, table.WhiteboardID)
+	assert.Contains(t, out, "columns", "a recovered create has the same {table, columns} shape as a normal one")
+}
+
+// A failure that left no row and got an answer or never left the process (a
+// token failure, a 429) is a refusal, not an unknown outcome.
+func TestCreateTableReferenceFailureBeforeTheRequestIsARefusal(t *testing.T) {
+	fns := tableReferenceFnsRefusing(t)
+	fns.createReference = func(context.Context, string, appapi.CreateTableReferenceRequest) (map[string]any, error) {
+		return nil, mcperr.New(mcperr.ConnectionError, "The liz-whiteboard app is rate limiting this server.")
+	}
+
+	_, err := createTableReferenceWithFns(context.Background(), fns, "user-1", validReferenceInput())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rate limiting")
+	assert.NotContains(t, err.Error(), "Outcome unknown")
 }
 
 // The app answers an id held on another whiteboard with its generic 500, which
@@ -217,7 +234,7 @@ func TestCreateTableReferenceLostResponseNotFoundIsOutcomeUnknown(t *testing.T) 
 	var sentID string
 	fns.createReference = func(_ context.Context, _ string, req appapi.CreateTableReferenceRequest) (map[string]any, error) {
 		sentID = req.ID
-		return nil, mcperr.New(mcperr.ConnectionError, "Cannot reach the app.")
+		return nil, mcperr.NewNoResponse("Cannot reach the app.")
 	}
 
 	_, err := createTableReferenceWithFns(context.Background(), fns, "user-1", validReferenceInput())

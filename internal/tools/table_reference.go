@@ -27,9 +27,8 @@
 //     silent.
 //
 // PANIC SAFETY. Every handler returns an MCP error for a missing whiteboard,
-// table or column. This server has no panic recovery: one nil dereference exits
-// the process and takes every other tool down with it, so nothing here
-// dereferences a value the app is merely expected to have sent.
+// table or column. recoverPanics turns a handler panic into a masked error, but
+// a handler still must not dereference values the app is only expected to send.
 package tools
 
 import (
@@ -86,6 +85,9 @@ type tableReferenceFns struct {
 	// findTable reads a reference node's DiagramTable row by id, to resolve a
 	// create whose response was lost (idempotent.go).
 	findTable func(ctx context.Context, id string) (*data.DiagramTable, error)
+	// findColumns reads a reference node's stub columns, so a create resolved
+	// by the re-read returns the same {table, columns} shape as a normal one.
+	findColumns func(ctx context.Context, tableID string) ([]data.Column, error)
 	// referenceTarget reads what a reference node points at, to resolve a
 	// re-target whose response was lost.
 	referenceTarget func(ctx context.Context, tableID string) (*data.ReferenceTarget, error)
@@ -105,6 +107,7 @@ func prodTableReferenceFns() tableReferenceFns {
 		listReferences:  appapi.ListTableReferences,
 		confirmNameOf:   data.FindReferenceConfirmName,
 		findTable:       data.FindDiagramTableByID,
+		findColumns:     data.ListColumnsByTableID,
 		referenceTarget: data.FindReferenceTarget,
 		tableProject:    data.GetTableProjectID,
 		assertAccess:    auth.AssertProjectAccess,
@@ -182,11 +185,12 @@ func createTableReferenceWithFns(
 			if err == nil {
 				return reference, nil, nil
 			}
-			// CONNECTION_ERROR covers no response, a 5xx and an unreadable
-			// body: the create may have landed. Every other code is the app's
-			// answer.
+			// Only a call that got no HTTP status back may have landed
+			// (McpError.NoResponse). Every other error is the app's answer or
+			// a failure before the request left: a refusal. The re-read still
+			// heals a 5xx or an unreadable body whose create did land.
 			var me *mcperr.McpError
-			if errors.As(err, &me) && me.Code != mcperr.ConnectionError {
+			if errors.As(err, &me) && !me.NoResponse {
 				return nil, me, nil
 			}
 			return nil, nil, err
@@ -196,7 +200,11 @@ func createTableReferenceWithFns(
 			if err != nil || table == nil {
 				return nil, "", false, err
 			}
-			return map[string]any{"table": table}, table.WhiteboardID, true, nil
+			columns, err := fns.findColumns(ctx, id)
+			if err != nil {
+				return nil, "", false, err
+			}
+			return map[string]any{"table": table, "columns": columns}, table.WhiteboardID, true, nil
 		},
 		scope:  in.WhiteboardID,
 		noun:   "table reference",
