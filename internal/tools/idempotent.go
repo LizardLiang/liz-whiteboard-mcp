@@ -130,3 +130,23 @@ func resolveOpAfterEmitError(emitErr error, what, reread string, check opCheck) 
 	return nil, outcomeUnknown(fmt.Sprintf("The %s may or may not have been applied. "+
 		"Read it with %s before you retry.", what, reread), emitErr)
 }
+
+// resolveDeleteNotFound resolves a NOT_FOUND ack to a delete of a row the
+// tool's pre-read found. SocketEmitWithAckNS re-sends once after a reconnect,
+// so a delete that landed before its ack was lost comes back NOT_FOUND. When
+// check shows the row gone, the ack becomes ok and carries check's entity.
+// Every other ack comes back unchanged.
+//
+// Call it only after the pre-read found the row. For an id the pre-read did
+// not find, NOT_FOUND is the answer: a delete of a row that never existed is
+// not applied.
+func resolveDeleteNotFound(ack socket.AckResult, check opCheck) socket.AckResult {
+	if ack.OK() || ack.Code() != string(mcperr.NotFound) {
+		return ack
+	}
+	entity, applied, err := check()
+	if err != nil || !applied {
+		return ack
+	}
+	return socket.AckResult{"ok": true, "entity": entity}
+}

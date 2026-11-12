@@ -172,3 +172,48 @@ func TestCanvasElementHolds_UnknownFieldIsNotAMatch(t *testing.T) {
 		"elementId": canvasOpElementID, "width": 10.0, "style": map[string]any{"fill": "#0090ff"},
 	}))
 }
+
+// SocketEmitWithAckNS re-sends once after a reconnect. A delete that landed
+// before its ack was lost comes back NOT_FOUND on the re-send: the element the
+// pre-read saw is gone, so the delete is applied.
+func TestDeleteCanvasElement_ResentDeleteNotFoundIsApplied(t *testing.T) {
+	el := rectangleOnBoard()
+	fns := lostCanvasAckFns(&el, nil)
+	fns.emit = func(context.Context, string, string, string, map[string]any) (socket.AckResult, error) {
+		el = nil // the first send landed; its ack was lost
+		return socket.AckResult{"ok": false, "code": "NOT_FOUND", "message": "Canvas element not found on this board"}, nil
+	}
+
+	res, _, err := deleteCanvasElement(context.Background(), fns,
+		deleteCanvasElementInput{CanvasBoardID: canvasTestBoardID, ElementID: canvasOpElementID})
+
+	require.NoError(t, err)
+	require.False(t, res.IsError, resultText(t, res))
+	assert.Contains(t, resultText(t, res), canvasOpElementID)
+}
+
+// An element the pre-read never saw on this board stays NOT_FOUND, with the
+// same answer for a missing id and an id on another board.
+func TestDeleteCanvasElement_UnseenElementIsNotFound(t *testing.T) {
+	notFound := socket.AckResult{"ok": false, "code": "NOT_FOUND", "message": "Canvas element not found on this board"}
+	other := rectangleOnBoard()
+	other.BoardID = "99998888-7777-4777-8777-777788889999"
+	texts := map[string]string{}
+	for name, stored := range map[string]*data.CanvasElement{"never existed": nil, "another board": other} {
+		el := stored
+		fns := lostCanvasAckFns(&el, nil)
+		fns.emit = func(context.Context, string, string, string, map[string]any) (socket.AckResult, error) {
+			return notFound, nil
+		}
+
+		res, _, err := deleteCanvasElement(context.Background(), fns,
+			deleteCanvasElementInput{CanvasBoardID: canvasTestBoardID, ElementID: canvasOpElementID})
+
+		require.NoError(t, err)
+		require.True(t, res.IsError, name)
+		assert.Contains(t, resultText(t, res), "NOT_FOUND", name)
+		assert.NotContains(t, resultText(t, res), other.BoardID, name)
+		texts[name] = resultText(t, res)
+	}
+	assert.Equal(t, texts["never existed"], texts["another board"])
+}

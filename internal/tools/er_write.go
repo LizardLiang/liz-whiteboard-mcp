@@ -142,6 +142,17 @@ func emitOp(ctx context.Context, whiteboardID, userID, event string, payload any
 	return socket.AckResult{"ok": true, "entity": entity}, nil
 }
 
+// emitDelete emits one ER delete of a row the tool's pre-read found. It is
+// emitOp, plus resolveDeleteNotFound for the NOT_FOUND a re-sent delete gets
+// when its first send landed.
+func emitDelete(ctx context.Context, whiteboardID, userID, event string, payload any, what string, check opCheck) (socket.AckResult, error) {
+	ack, err := emitOp(ctx, whiteboardID, userID, event, payload, what, check)
+	if err != nil {
+		return nil, err
+	}
+	return resolveDeleteNotFound(ack, check), nil
+}
+
 // deletedCheck is the opCheck of a delete: applied when no row has the id.
 func deletedCheck[T any](read func(id string) (*T, error), id string) opCheck {
 	return func() (any, bool, error) {
@@ -154,7 +165,9 @@ func deletedCheck[T any](read func(id string) (*T, error), id string) opCheck {
 }
 
 // rowCheck is the opCheck of an update or move: applied when the row exists
-// and shows reports true for it.
+// and shows reports true for it. Every shows pins the row to the whiteboard or
+// table the tool's pre-read authorized, so a re-read never reports a row on a
+// board the caller was not checked for.
 func rowCheck[T any](read func(id string) (*T, error), id string, shows func(*T) bool) opCheck {
 	return func() (any, bool, error) {
 		row, err := read(id)

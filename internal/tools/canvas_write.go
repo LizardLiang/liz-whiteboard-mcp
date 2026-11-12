@@ -509,7 +509,14 @@ func updateCanvasElement(ctx context.Context, fns canvasTableFns, in updateCanva
 		canvasElementShows(ctx, fns.loadElement, in.CanvasBoardID, payload))
 }
 
-// deleteCanvasElement validates, runs the write gate and emits element:delete.
+// canvasElementRefused is the app's answer to an element id that is missing or
+// on another board (loadOwnedElement in src/lib/canvas-board/handlers.ts).
+const canvasElementRefused = "Canvas element not found on this board"
+
+// deleteCanvasElement validates, runs the write gate, reads the element and
+// emits element:delete. An element that is missing or on another board gets
+// the app's NOT_FOUND answer without an emit, so only a delete of an element
+// the read found is resolved by resolveDeleteNotFound.
 func deleteCanvasElement(ctx context.Context, fns canvasTableFns, in deleteCanvasElementInput) (*mcp.CallToolResult, any, error) {
 	if e := validateUUID("elementId", in.ElementID); e != nil {
 		return fail(e)
@@ -518,10 +525,25 @@ func deleteCanvasElement(ctx context.Context, fns canvasTableFns, in deleteCanva
 	if err != nil {
 		return fail(err)
 	}
-	return emitCanvasOp(ctx, fns.emit, userID, in.CanvasBoardID, "element:delete",
+	el, err := fns.loadElement(ctx, in.ElementID)
+	if err != nil {
+		return fail(err)
+	}
+	if el == nil || el.BoardID != in.CanvasBoardID {
+		return canvasAckFailure(socket.AckResult{"ok": false, "code": string(mcperr.NotFound),
+			"message": canvasElementRefused}, canvasElementRefused)
+	}
+	check := deletedCheck(func(id string) (*data.CanvasElement, error) { return fns.loadElement(ctx, id) }, in.ElementID)
+	emit := func(ctx context.Context, userID, canvasBoardID, event string, payload map[string]any) (socket.AckResult, error) {
+		ack, err := fns.emit(ctx, userID, canvasBoardID, event, payload)
+		if err != nil {
+			return nil, err
+		}
+		return resolveDeleteNotFound(ack, check), nil
+	}
+	return emitCanvasOp(ctx, emit, userID, in.CanvasBoardID, "element:delete",
 		map[string]any{"elementId": in.ElementID},
-		"Server rejected canvas element deletion.", "delete of canvas element "+in.ElementID,
-		deletedCheck(func(id string) (*data.CanvasElement, error) { return fns.loadElement(ctx, id) }, in.ElementID))
+		"Server rejected canvas element deletion.", "delete of canvas element "+in.ElementID, check)
 }
 
 // canvasElementShows is the opCheck of an element:update: applied when the

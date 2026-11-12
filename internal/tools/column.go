@@ -201,7 +201,7 @@ func registerUpdateColumn(s *mcp.Server) {
 		ack, err := emitOp(ctx, whiteboardID, userID, "column:update", payload,
 			"update of column "+in.ColumnID,
 			rowCheck(prodERReaders(ctx).column, in.ColumnID, func(c *data.Column) bool {
-				return columnShowsUpdate(c, in)
+				return c.TableID == column.TableID && columnShowsUpdate(c, in)
 			}))
 		if err != nil {
 			return fail(err)
@@ -245,7 +245,7 @@ func registerDeleteColumn(s *mcp.Server) {
 			return fail(err)
 		}
 
-		ack, err := emitOp(ctx, whiteboardID, userID, "column:delete", map[string]any{"columnId": in.ColumnID},
+		ack, err := emitDelete(ctx, whiteboardID, userID, "column:delete", map[string]any{"columnId": in.ColumnID},
 			"delete of column "+in.ColumnID, deletedCheck(prodERReaders(ctx).column, in.ColumnID))
 		if err != nil {
 			return fail(err)

@@ -198,7 +198,7 @@ func registerUpdateTable(s *mcp.Server) {
 			ackMeta, err := emitOp(ctx, whiteboardID, userID, "table:update", metaPayload,
 				"update of table "+in.TableID,
 				rowCheck(prodERReaders(ctx).table, in.TableID, func(t *data.DiagramTable) bool {
-					return tableShowsUpdate(t, in)
+					return t.WhiteboardID == whiteboardID && tableShowsUpdate(t, in)
 				}))
 			if err != nil {
 				return fail(err)
@@ -233,7 +233,8 @@ func registerUpdateTable(s *mcp.Server) {
 			ackMove, err := emitOp(ctx, whiteboardID, userID, "table:move", movePayload,
 				"move of table "+in.TableID,
 				rowCheck(prodERReaders(ctx).table, in.TableID, func(t *data.DiagramTable) bool {
-					return floatMatches(t.PositionX, finalX) && floatMatches(t.PositionY, finalY)
+					return t.WhiteboardID == whiteboardID &&
+						floatMatches(t.PositionX, finalX) && floatMatches(t.PositionY, finalY)
 				}))
 			if err != nil {
 				return fail(err)
@@ -291,7 +292,7 @@ func registerDeleteTable(s *mcp.Server) {
 			return mcpError(mcperr.NotFound, fmt.Sprintf("Table %s not found.", in.TableID))
 		}
 
-		ack, err := emitOp(ctx, table.WhiteboardID, userID, "table:delete", map[string]any{"tableId": in.TableID},
+		ack, err := emitDelete(ctx, table.WhiteboardID, userID, "table:delete", map[string]any{"tableId": in.TableID},
 			"delete of table "+in.TableID, deletedCheck(prodERReaders(ctx).table, in.TableID))
 		if err != nil {
 			return fail(err)

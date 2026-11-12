@@ -42,8 +42,10 @@ type emitFunc func(event string, payload any) (socket.AckResult, error)
 // into updated/failed, mirroring the non-atomic loop in src/mcp/tools/positions.ts.
 // After an emit error it re-reads the table with readTable: a table already at
 // the requested position counts as updated, any other result as an unknown
-// outcome (resolveOpAfterEmitError).
+// outcome (resolveOpAfterEmitError). The re-read counts only a table on
+// whiteboardID, so a table id from another board is never reported updated.
 func aggregatePositions(
+	whiteboardID string,
 	positions []positionEntry,
 	emit emitFunc,
 	readTable func(id string) (*data.DiagramTable, error),
@@ -60,7 +62,8 @@ func aggregatePositions(
 		if emitErr != nil {
 			_, unknown := resolveOpAfterEmitError(emitErr, "move of table "+pos.ID, "get_board",
 				rowCheck(readTable, pos.ID, func(t *data.DiagramTable) bool {
-					return floatMatches(t.PositionX, pos.PositionX) && floatMatches(t.PositionY, pos.PositionY)
+					return t.WhiteboardID == whiteboardID &&
+						floatMatches(t.PositionX, pos.PositionX) && floatMatches(t.PositionY, pos.PositionY)
 				}))
 			if unknown == nil {
 				updated = append(updated, posUpdated{ID: pos.ID})
@@ -122,7 +125,7 @@ func RegisterPositionsTools(s *mcp.Server) {
 		emit := func(event string, payload any) (socket.AckResult, error) {
 			return socket.SocketEmitWithAck(ctx, in.WhiteboardID, userID, event, payload)
 		}
-		updated, failed := aggregatePositions(in.Positions, emit, prodERReaders(ctx).table)
+		updated, failed := aggregatePositions(in.WhiteboardID, in.Positions, emit, prodERReaders(ctx).table)
 		return success(map[string]any{"updated": updated, "failed": failed})
 	})
 }

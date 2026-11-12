@@ -10,6 +10,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -367,10 +368,10 @@ func TestBulkUpdatePositions_LostAckAtTargetIsUpdated(t *testing.T) {
 		return nil, mcperr.New(mcperr.ConnectionError, mcperr.MsgConnectionError)
 	}
 	read := func(id string) (*data.DiagramTable, error) {
-		return &data.DiagramTable{ID: id, PositionX: &x, PositionY: &y}, nil
+		return &data.DiagramTable{ID: id, WhiteboardID: "wb-1", PositionX: &x, PositionY: &y}, nil
 	}
 
-	updated, failed := aggregatePositions([]positionEntry{{ID: "t1", PositionX: 5, PositionY: 6}}, emit, read)
+	updated, failed := aggregatePositions("wb-1", []positionEntry{{ID: "t1", PositionX: 5, PositionY: 6}}, emit, read)
 
 	assert.Empty(t, failed)
 	require.Len(t, updated, 1)
@@ -384,4 +385,22 @@ func resultText(t *testing.T, res *mcp.CallToolResult) string {
 	tc, ok := res.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
 	return tc.Text
+}
+
+func TestResolveDeleteNotFound(t *testing.T) {
+	gone := func() (any, bool, error) { return map[string]any{"id": "r1"}, true, nil }
+	present := func() (any, bool, error) { return map[string]any{"id": "r1"}, false, nil }
+	broken := func() (any, bool, error) { return nil, false, errors.New("db down") }
+	notFound := socket.AckResult{"ok": false, "code": "NOT_FOUND", "message": "Table not found"}
+	forbidden := socket.AckResult{"ok": false, "code": "FORBIDDEN", "message": "no"}
+	ok := socket.AckResult{"ok": true, "cascade": map[string]any{"columns": 2.0}}
+
+	resolved := resolveDeleteNotFound(notFound, gone)
+	assert.True(t, resolved.OK())
+	assert.Equal(t, map[string]any{"id": "r1"}, resolved.Entity())
+
+	assert.Equal(t, notFound, resolveDeleteNotFound(notFound, present))
+	assert.Equal(t, notFound, resolveDeleteNotFound(notFound, broken))
+	assert.Equal(t, forbidden, resolveDeleteNotFound(forbidden, gone))
+	assert.Equal(t, ok, resolveDeleteNotFound(ok, gone))
 }
