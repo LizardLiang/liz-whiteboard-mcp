@@ -62,49 +62,25 @@ var (
 	erTableKind = erRowKind{
 		event: "table:create", noun: "table", fallback: "Server rejected table creation.",
 		lookup: func(r erReaders) rowLookup {
-			return func(id string) (any, string, bool, error) {
-				t, err := r.table(id)
-				if err != nil || t == nil {
-					return nil, "", false, err
-				}
-				return t, t.WhiteboardID, true, nil
-			}
+			return lookupRow(r.table, func(t *data.DiagramTable) string { return t.WhiteboardID })
 		},
 	}
 	erColumnKind = erRowKind{
 		event: "column:create", noun: "column", fallback: "Server rejected column creation.",
 		lookup: func(r erReaders) rowLookup {
-			return func(id string) (any, string, bool, error) {
-				c, err := r.column(id)
-				if err != nil || c == nil {
-					return nil, "", false, err
-				}
-				return c, c.TableID, true, nil
-			}
+			return lookupRow(r.column, func(c *data.Column) string { return c.TableID })
 		},
 	}
 	erRelationshipKind = erRowKind{
 		event: "relationship:create", noun: "relationship", fallback: "Server rejected relationship creation.",
 		lookup: func(r erReaders) rowLookup {
-			return func(id string) (any, string, bool, error) {
-				rel, err := r.relationship(id)
-				if err != nil || rel == nil {
-					return nil, "", false, err
-				}
-				return rel, rel.WhiteboardID, true, nil
-			}
+			return lookupRow(r.relationship, func(rel *data.Relationship) string { return rel.WhiteboardID })
 		},
 	}
 	erAreaKind = erRowKind{
 		event: "area:create", noun: "area", fallback: "Server rejected area creation.",
 		lookup: func(r erReaders) rowLookup {
-			return func(id string) (any, string, bool, error) {
-				a, err := r.area(id)
-				if err != nil || a == nil {
-					return nil, "", false, err
-				}
-				return a, a.WhiteboardID, true, nil
-			}
+			return lookupRow(r.area, func(a *data.Area) string { return a.WhiteboardID })
 		},
 	}
 )

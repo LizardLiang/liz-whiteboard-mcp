@@ -130,13 +130,9 @@ func emitCreateWithID(
 		send: ackSend(func(p map[string]any) (socket.AckResult, error) {
 			return fns.emit(ctx, userID, canvasBoardID, "element:create", p)
 		}, fallbackMessage),
-		lookup: func(id string) (any, string, bool, error) {
-			el, err := fns.loadElement(ctx, id)
-			if err != nil || el == nil {
-				return nil, "", false, err
-			}
-			return el, el.BoardID, true, nil
-		},
+		lookup: lookupRow(func(id string) (*data.CanvasElement, error) {
+			return fns.loadElement(ctx, id)
+		}, func(el *data.CanvasElement) string { return el.BoardID }),
 		scope:  canvasBoardID,
 		noun:   "canvas element",
 		reread: "get_canvas_board",

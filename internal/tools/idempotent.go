@@ -38,6 +38,18 @@ type createSend func(payload map[string]any) (entity any, refused *mcperr.McpErr
 // is the board, whiteboard or table the row lives on.
 type rowLookup func(id string) (entity any, scope string, found bool, err error)
 
+// lookupRow adapts a typed row reader to a rowLookup. read returns nil when
+// no row has the id; scope names the board, whiteboard or table the row is on.
+func lookupRow[T any](read func(id string) (*T, error), scope func(*T) string) rowLookup {
+	return func(id string) (any, string, bool, error) {
+		row, err := read(id)
+		if err != nil || row == nil {
+			return nil, "", false, err
+		}
+		return row, scope(row), true, nil
+	}
+}
+
 // idCreate is one create with a client-generated id.
 type idCreate struct {
 	send   createSend
