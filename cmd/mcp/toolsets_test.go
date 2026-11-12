@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -109,4 +110,36 @@ func TestToolsetServersConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// Every prebuilt server must turn a panicking tool into an error result and keep
+// the session serving: a panic in one tool must not take the process down.
+func TestEveryPrebuiltServerRecoversPanics(t *testing.T) {
+	ctx := context.Background()
+	c := newToolsetServers()
+	require.Len(t, c.servers, 8)
+	for key, server := range c.servers {
+		mcp.AddTool(server, &mcp.Tool{Name: "panic_probe", Description: "panics"},
+			func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+				panic("probe panic for server " + key)
+			})
+
+		a, b := mcp.NewInMemoryTransports()
+		ss, err := server.Connect(ctx, a, nil)
+		require.NoError(t, err, "server %q", key)
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "pc", Version: "0"}, nil).Connect(ctx, b, nil)
+		require.NoError(t, err, "server %q", key)
+
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "panic_probe", Arguments: map[string]any{}})
+		require.NoError(t, err, "server %q", key)
+		assert.True(t, res.IsError, "server %q", key)
+		assert.Contains(t, res.Content[0].(*mcp.TextContent).Text, "INTERNAL_ERROR", "server %q", key)
+
+		next, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "get_tool_guide", Arguments: map[string]any{}})
+		require.NoError(t, err, "server %q", key)
+		assert.False(t, next.IsError, "server %q", key)
+
+		cs.Close()
+		ss.Close()
+	}
 }

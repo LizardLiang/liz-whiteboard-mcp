@@ -192,6 +192,7 @@ func ParseToolsets(header string) (ToolsetSet, error) {
 // NewServer builds a server that advertises core plus the selected toolsets.
 func NewServer(impl *mcp.Implementation, set ToolsetSet) *mcp.Server {
 	s := mcp.NewServer(impl, &mcp.ServerOptions{Instructions: Instructions})
+	s.AddReceivingMiddleware(recoverPanics)
 	RegisterAll(s)
 	var drop []string
 	for name, ts := range toolToolset {
