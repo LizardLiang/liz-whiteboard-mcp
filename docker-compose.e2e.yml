@@ -1,6 +1,6 @@
 # E2E verification override for the canvas MCP suite (e2e/canvas-mcp.spec.ts).
 #
-# Two deviations from docker-compose.yml, both required, both explained:
+# Three deviations from docker-compose.yml, all required, all explained:
 #
 # 1. PROXY PORT. Host port 8080 is unbindable in this WSL2 environment (Docker
 #    Desktop answers "/forwards/expose returned 500"), so the published port
@@ -13,15 +13,11 @@
 #    Playwright can query. The app publishes its live scene at
 #    `window.__canvasEngine` for exactly this reason, but gates the publish on
 #    `import.meta.env.DEV || VITE_E2E_HOOKS === '1'` so users never receive it
-#    (src/components/canvas/canvas-test-hook.ts:209). Vite reads VITE_* at BUILD
+#    (src/components/canvas/canvas-test-hook.ts). Vite reads VITE_* at BUILD
 #    time, and compose `environment:` only sets RUNTIME variables, so the
 #    variable has to reach `bun run build` inside the image build. The app
-#    Dockerfile declares no ARG for it, so this override restates the build with
-#    the variable set rather than editing the other repo.
-#
-#    DRIFT WARNING: the steps below mirror ../liz-whiteboard/Dockerfile. If that
-#    file changes, update this block. The e2e suite fails loudly if the hook is
-#    missing, which is the tripwire.
+#    Dockerfile declares `ARG VITE_E2E_HOOKS=` (empty by default, so production
+#    images omit the hook); this override sets that build arg to 1.
 #
 # 3. SEED SCRIPTS MOUNTED. The app's .dockerignore leaves e2e/ out of every
 #    image, but e2e/stack.ts runs the app's seed scripts inside the app
@@ -37,20 +33,8 @@ services:
   app:
     build:
       context: ../liz-whiteboard
-      dockerfile_inline: |
-        FROM oven/bun:1
-        WORKDIR /app
-        COPY package.json bun.lock ./
-        RUN bun install
-        COPY . .
-        ENV VITE_E2E_HOOKS=1
-        RUN bun run build
-        ENV DATABASE_URL=file:/app/data/app.db
-        ENV NODE_ENV=production
-        ENV PORT=3000
-        EXPOSE 3000
-        RUN chmod +x /app/entrypoint.sh
-        CMD ["/app/entrypoint.sh"]
+      args:
+        VITE_E2E_HOOKS: "1"
     volumes:
       - ../liz-whiteboard/e2e:/app/e2e:ro
 
