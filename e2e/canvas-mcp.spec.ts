@@ -301,6 +301,285 @@ test.describe('a connected browser follows MCP element writes live', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Canvas tables: create_canvas_table / edit_canvas_table
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface TableProps {
+  kind: 'table'
+  table: {
+    rows: Array<{ id: string; height: number }>
+    cols: Array<{ id: string; width: number }>
+    cells: Record<string, { text: string; fill?: string; textAlign?: string }>
+    headerRow: boolean
+  }
+}
+
+interface CreatedTable {
+  element: CanvasElementRow
+  rowIds: Array<string>
+  columnIds: Array<string>
+}
+
+interface EditResult {
+  applied: number
+  failed?: { index: number; type: string; code: string; message: string }
+  skipped: number
+  rows: number
+  columns: number
+}
+
+interface SceneTable {
+  id: string
+  kind: string
+  table?: TableProps['table']
+}
+
+async function sceneTable(page: Page, id: string): Promise<SceneTable | undefined> {
+  const s = (await scene(page)) as unknown as { elements: Array<SceneTable> }
+  return s.elements.find((e) => e.id === id)
+}
+
+async function storedTable(boardId: string, id: string): Promise<TableProps['table']> {
+  const board = await editor.expectOk<CanvasBoardWithElements>('get_canvas_board', {
+    canvasBoardId: boardId,
+  })
+  const el = board.elements.find((e) => e.id === id)
+  expect(el, 'the table must be on the board').toBeDefined()
+  return (el!.props as unknown as TableProps).table
+}
+
+test.describe('canvas tables over MCP', () => {
+  test.beforeAll(() => resetCanvasBoards())
+
+  test('the server advertises both table tools', async () => {
+    expect(await editor.listToolNames()).toEqual(
+      expect.arrayContaining(['create_canvas_table', 'edit_canvas_table']),
+    )
+  })
+
+  test('a created table, and each edit, reach an open browser live and survive a reload', async ({
+    browser,
+  }) => {
+    const { page, close } = await openBoardAsEditor(browser, IDS.canvasBoard)
+    try {
+      // (a) create
+      const created = await editor.expectOk<CreatedTable>('create_canvas_table', {
+        canvasBoardId: IDS.canvasBoard,
+        positionX: 80,
+        positionY: 400,
+        rows: 3,
+        columns: 3,
+        cells: [['Name', 'Role', 'Team'], ['Ada', 'Engineer']],
+      })
+      expect(created.rowIds).toHaveLength(3)
+      expect(created.columnIds).toHaveLength(3)
+      const id = created.element.id
+      await page.waitForFunction(
+        (elId) =>
+          ((window.__canvasEngine as { elements: Array<{ id: string }> })?.elements ?? []).some(
+            (e) => e.id === elId,
+          ),
+        id,
+        { timeout: 20_000 },
+      )
+      const live = (await sceneTable(page, id))!
+      expect(live.kind).toBe('table')
+      expect(live.table!.rows).toHaveLength(3)
+      expect(live.table!.headerRow).toBe(true)
+      const texts = Object.values(live.table!.cells).map((c) => c.text)
+      expect(texts).toEqual(expect.arrayContaining(['Name', 'Role', 'Team', 'Ada', 'Engineer']))
+
+      // (b) setText + insertRow + setFill in one ordered call
+      const edit = await editor.expectOk<EditResult>('edit_canvas_table', {
+        canvasBoardId: IDS.canvasBoard,
+        elementId: id,
+        changes: [
+          { type: 'setText', row: 2, column: 0, text: 'Grace' },
+          { type: 'insertRow', at: 3 },
+          { type: 'setText', row: 3, column: 1, text: 'appended' },
+          { type: 'setFill', fromRow: 0, toRow: 0, fromColumn: 0, toColumn: 2, fill: '#fde68a' },
+        ],
+      })
+      expect(edit).toMatchObject({ applied: 4, skipped: 0, rows: 4, columns: 3 })
+      expect(edit.failed).toBeUndefined()
+
+      await page.waitForFunction(
+        (elId) => {
+          const el = (
+            window.__canvasEngine as {
+              elements: Array<{
+                id: string
+                table?: { rows: Array<unknown>; cells: Record<string, { text: string; fill?: string }> }
+              }>
+            }
+          )?.elements?.find((e) => e.id === elId)
+          const cells = Object.values(el?.table?.cells ?? {})
+          return (
+            el?.table?.rows.length === 4 &&
+            cells.some((c) => c.text === 'appended') &&
+            cells.some((c) => c.text === 'Grace') &&
+            cells.filter((c) => c.fill === '#fde68a').length === 3
+          )
+        },
+        id,
+        { timeout: 20_000 },
+      )
+
+      // The write is persisted, not just broadcast.
+      await page.reload()
+      await page.waitForFunction(() => window.__canvasEngine !== undefined)
+      await page.waitForFunction(
+        (elId) =>
+          (
+            window.__canvasEngine as { elements: Array<{ id: string; table?: { rows: Array<unknown> } }> }
+          )?.elements?.find((e) => e.id === elId)?.table?.rows.length === 4,
+        id,
+        { timeout: 20_000 },
+      )
+    } finally {
+      await close()
+    }
+  })
+
+  test('a long setText grows its row and no shorter text shrinks it', async () => {
+    const created = await editor.expectOk<CreatedTable>('create_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      positionX: 80,
+      positionY: 700,
+      rows: 2,
+      columns: 2,
+    })
+    const id = created.element.id
+    const before = await storedTable(IDS.canvasBoard, id)
+    expect(before.rows[0].height).toBe(40)
+
+    const long = 'a long sentence that has to wrap over several lines inside one cell '.repeat(2)
+    const grown = await editor.expectOk<EditResult>('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: id,
+      changes: [{ type: 'setText', row: 0, column: 0, text: long }],
+    })
+    expect(grown.applied).toBe(1)
+    const after = await storedTable(IDS.canvasBoard, id)
+    const grownHeight = after.rows[0].height
+    // 140 chars * 8.4 px over a 104 px inner width: at least 2 lines of 19.6 px.
+    expect(grownHeight).toBeGreaterThanOrEqual(56)
+    expect(after.rows[1].height).toBe(40)
+
+    await editor.expectOk('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: id,
+      changes: [{ type: 'setText', row: 0, column: 0, text: 'short' }],
+    })
+    const shorter = await storedTable(IDS.canvasBoard, id)
+    expect(shorter.rows[0].height, 'the MCP never shrinks a row').toBe(grownHeight)
+  })
+
+  test('removing the only column reports the app refusal; an unapplied refusal is a tool error', async () => {
+    const created = await editor.expectOk<CreatedTable>('create_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      positionX: 600,
+      positionY: 400,
+      rows: 1,
+      columns: 1,
+    })
+    const id = created.element.id
+
+    const partial = await editor.expectOk<EditResult>('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: id,
+      changes: [
+        { type: 'setText', row: 0, column: 0, text: 'kept' },
+        { type: 'removeColumn', column: 0 },
+        { type: 'setText', row: 0, column: 0, text: 'never reached' },
+      ],
+    })
+    expect(partial.applied).toBe(1)
+    expect(partial.skipped).toBe(1)
+    expect(partial.failed).toMatchObject({ index: 1, type: 'removeColumn', code: 'VALIDATION_ERROR' })
+    const stored = await storedTable(IDS.canvasBoard, id)
+    expect(Object.values(stored.cells).map((c) => c.text)).toEqual(['kept'])
+
+    const alone = await editor.callTool<McpErrorPayload>('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: id,
+      changes: [{ type: 'removeColumn', column: 0 }],
+    })
+    expect(alone.isError).toBe(true)
+    expect(alone.data.code).toBe('VALIDATION_ERROR')
+
+    const outOfRange = await editor.callTool<McpErrorPayload>('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: id,
+      changes: [{ type: 'removeRow', row: 5 }],
+    })
+    expect(outOfRange.isError).toBe(true)
+    expect(JSON.stringify(outOfRange.data)).toContain('changes[0].row: 5 is out of range')
+  })
+
+  test('a create that is refused before the gate does not kill the server', async () => {
+    // Commit 3640069: a pre-load validation path once crashed the process.
+    const tooBig = await editor.callTool<McpErrorPayload>('create_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      positionX: 0,
+      positionY: 0,
+      rows: 30,
+      columns: 30,
+    })
+    expect(tooBig.isError).toBe(true)
+    expect(tooBig.data.code).toBe('VALIDATION_ERROR')
+    expect(await editor.listToolNames()).toContain('create_canvas_table')
+  })
+
+  test('edit_canvas_table refuses a non-table element', async () => {
+    const result = await editor.callTool<McpErrorPayload>('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: IDS.canvasRect,
+      changes: [{ type: 'setHeaderRow', on: false }],
+    })
+    expect(result.isError).toBe(true)
+    expect(result.data.code).toBe('VALIDATION_ERROR')
+  })
+
+  test('a VIEWER is refused both table tools', async () => {
+    const create = await viewer.callTool<McpErrorPayload>('create_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      positionX: 0,
+      positionY: 0,
+      rows: 2,
+      columns: 2,
+    })
+    expect(create.isError).toBe(true)
+    expect(create.data.code).toBe('FORBIDDEN')
+    const edit = await viewer.callTool<McpErrorPayload>('edit_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      elementId: IDS.canvasRect,
+      changes: [{ type: 'setHeaderRow', on: false }],
+    })
+    expect(edit.isError).toBe(true)
+    expect(edit.data.code).toBe('FORBIDDEN')
+  })
+
+  test('get_canvas_summary prints a table’s cell text', async () => {
+    const created = await editor.expectOk<CreatedTable>('create_canvas_table', {
+      canvasBoardId: IDS.canvasBoard,
+      positionX: 900,
+      positionY: 900,
+      rows: 2,
+      columns: 2,
+      cells: [['Fruit', 'Colour'], ['Plum', 'Purple']],
+    })
+    expect(created.element.id).toBeTruthy()
+    const summary = await editor.expectOk<string>('get_canvas_summary', {
+      canvasBoardId: IDS.canvasBoard,
+    })
+    expect(summary).toContain('2×2 header')
+    expect(summary).toContain('Fruit | Colour')
+    expect(summary).toContain('Plum | Purple')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NEGATIVE CONTROL for the test above
 // ─────────────────────────────────────────────────────────────────────────────
 

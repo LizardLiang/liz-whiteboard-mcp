@@ -1,6 +1,7 @@
 package summary
 
 import (
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +42,62 @@ func canvasSummaryText(text *string) string {
 	return ` "` + flat + `"`
 }
 
+// Table preview limits: one table must not swamp the summary, and a 500-cell
+// table can hold 5000 characters per cell.
+const (
+	canvasSummaryTableRows    = 10
+	canvasSummaryTableCellLen = 30
+)
+
+// canvasTableLines renders a table element as its header line plus up to
+// canvasSummaryTableRows rows of " | "-joined cell text. A table whose props
+// cannot be read falls back to the plain element line, so a damaged row never
+// hides the rest of the board.
+func canvasTableLines(e data.CanvasElement) []string {
+	var props struct {
+		Table *struct {
+			Rows []struct {
+				ID string `json:"id"`
+			} `json:"rows"`
+			Cols []struct {
+				ID string `json:"id"`
+			} `json:"cols"`
+			Cells map[string]struct {
+				Text string `json:"text"`
+			} `json:"cells"`
+			HeaderRow bool `json:"headerRow"`
+		} `json:"table"`
+	}
+	head := e.Kind +
+		" @(" + formatCanvasNumber(e.PositionX) + "," + formatCanvasNumber(e.PositionY) + ")" +
+		" " + formatCanvasNumber(e.Width) + "x" + formatCanvasNumber(e.Height)
+	if err := json.Unmarshal(e.Props, &props); err != nil || props.Table == nil {
+		return []string{head + canvasSummaryText(e.Text)}
+	}
+	t := props.Table
+	head += " " + strconv.Itoa(len(t.Rows)) + "×" + strconv.Itoa(len(t.Cols))
+	if t.HeaderRow {
+		head += " header"
+	}
+	lines := []string{head}
+	for r, row := range t.Rows {
+		if r == canvasSummaryTableRows {
+			lines = append(lines, "  … "+strconv.Itoa(len(t.Rows)-r)+" more rows")
+			break
+		}
+		cells := make([]string, len(t.Cols))
+		for c, col := range t.Cols {
+			flat := strings.Join(strings.Fields(canvasTextReplacer.Replace(t.Cells[row.ID+":"+col.ID].Text)), " ")
+			if runes := []rune(flat); len(runes) > canvasSummaryTableCellLen {
+				flat = string(runes[:canvasSummaryTableCellLen]) + "…"
+			}
+			cells[c] = flat
+		}
+		lines = append(lines, "  "+strings.Join(cells, " | "))
+	}
+	return lines
+}
+
 // canvasKindCounts renders "kind=n" pairs in ascending kind order, so the same
 // board always produces the same summary text.
 func canvasKindCounts(elements []data.CanvasElement) string {
@@ -76,6 +133,7 @@ func canvasKindCounts(elements []data.CanvasElement) string {
 //	ELEMENTS <n> (<kind>=<n>, ...)
 //
 //	<kind> @(<x>,<y>) <w>x<h> "<text>"
+//	table @(<x>,<y>) <w>x<h> <R>×<C> [header], then up to 10 rows of cell text
 //	...
 //	TRUNCATED <shown> of <total> elements shown, in paint order from the bottom.
 func FormatCanvasSummary(board *data.CanvasBoardWithElements, totalElements int) string {
@@ -95,6 +153,10 @@ func FormatCanvasSummary(board *data.CanvasBoardWithElements, totalElements int)
 	if shown > 0 {
 		lines = append(lines, "")
 		for _, e := range board.Elements {
+			if e.Kind == "table" {
+				lines = append(lines, canvasTableLines(e)...)
+				continue
+			}
 			lines = append(lines,
 				e.Kind+
 					" @("+formatCanvasNumber(e.PositionX)+","+formatCanvasNumber(e.PositionY)+")"+

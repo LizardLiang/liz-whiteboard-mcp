@@ -457,7 +457,7 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 			"NOT an ER diagram whiteboard). kind is rectangle, ellipse, diamond, triangle, or text. " +
 			"The new element is placed on top of the board automatically. " +
 			"Use create_canvas_connector to draw a line between elements. " +
-			"For ER diagram tables use create_table instead.",
+			"For a grid table use create_canvas_table. For ER diagram tables use create_table instead.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createCanvasElementInput) (*mcp.CallToolResult, any, error) {
 		payload, e := buildCanvasElementCreatePayload(in)
 		if e != nil {
@@ -472,7 +472,8 @@ func RegisterCanvasWriteTools(s *mcp.Server) {
 		Description: "Move, resize, restyle, re-label, or restack one canvas element (freeform " +
 			"FigJam-style board, NOT an ER diagram whiteboard). Supply canvasBoardId, elementId, " +
 			"and at least one field to change. zIndex sets paint order: a higher value draws on top. " +
-			"style is written whole — omitted style keys reset to the engine defaults.",
+			"style is written whole — omitted style keys reset to the engine defaults. " +
+			"For a table, width and height are ignored; use edit_canvas_table to change its grid.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in updateCanvasElementInput) (*mcp.CallToolResult, any, error) {
 		payload, e := buildCanvasElementUpdatePayload(in)
 		if e != nil {

@@ -1,6 +1,8 @@
 package summary
 
 import (
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -134,4 +136,48 @@ func TestFormatCanvasSummary_FormatsNumbersWithoutTrailingZeros(t *testing.T) {
 		canvasElem("el-1", "rectangle", -12.25, 0, 1024, 7.5, nil)), 1)
 
 	assert.Contains(t, got, "rectangle @(-12.25,0) 1024x7.5")
+}
+
+func tableElem(rows, cols int, header bool, cells map[string]string) data.CanvasElement {
+	type r struct {
+		ID string `json:"id"`
+	}
+	props := map[string]any{"kind": "table"}
+	rs := make([]r, rows)
+	cs := make([]r, cols)
+	for i := range rs {
+		rs[i].ID = "r" + strconv.Itoa(i)
+	}
+	for i := range cs {
+		cs[i].ID = "c" + strconv.Itoa(i)
+	}
+	cellMap := map[string]any{}
+	for k, v := range cells {
+		cellMap[k] = map[string]any{"text": v}
+	}
+	props["table"] = map[string]any{"rows": rs, "cols": cs, "cells": cellMap, "headerRow": header}
+	raw, _ := json.Marshal(props)
+	return data.CanvasElement{Kind: "table", PositionX: 5, PositionY: 6, Width: float64(120 * cols), Height: float64(40 * rows), Props: data.JSONText(raw)}
+}
+
+func TestFormatCanvasSummary_TablePrintsCellText(t *testing.T) {
+	el := tableElem(2, 2, true, map[string]string{
+		"r0:c0": "Name", "r0:c1": "Role", "r1:c0": "Ada\nLovelace", "r1:c1": strings.Repeat("x", 40),
+	})
+	got := FormatCanvasSummary(canvasBoard("B", el), 1)
+	assert.Contains(t, got, "table @(5,6) 240x80 2×2 header")
+	assert.Contains(t, got, "\n  Name | Role\n")
+	assert.Contains(t, got, "  Ada Lovelace | "+strings.Repeat("x", 30)+"…")
+}
+
+func TestFormatCanvasSummary_TableCapsRows(t *testing.T) {
+	got := FormatCanvasSummary(canvasBoard("B", tableElem(25, 1, false, nil)), 1)
+	assert.NotContains(t, got, "header")
+	assert.Contains(t, got, "… 15 more rows")
+}
+
+func TestFormatCanvasSummary_UnreadableTableFallsBackToOneLine(t *testing.T) {
+	el := data.CanvasElement{Kind: "table", Width: 1, Height: 1, Props: data.JSONText(`not json`)}
+	got := FormatCanvasSummary(canvasBoard("B", el), 1)
+	assert.Contains(t, got, "table @(0,0) 1x1")
 }

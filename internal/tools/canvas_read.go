@@ -187,6 +187,7 @@ func RegisterCanvasReadTools(s *mcp.Server) {
 		Description: "Get the full state of a canvas board (freeform shapes, text, and connectors) " +
 			"with every element's geometry, style, and props, in paint order. " +
 			"This is the detail read: prefer get_canvas_summary for orientation. " +
+			"A table element carries its grid in props.table (rows, cols, and cells keyed rowId:colId). " +
 			"Returns at most 500 elements and reports totalElements and truncated. " +
 			"For ER diagram whiteboards use get_board instead.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in canvasBoardIDInput) (*mcp.CallToolResult, any, error) {

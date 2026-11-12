@@ -52,6 +52,7 @@ func TestToolCountMatchesDocumentation(t *testing.T) {
 	tools.RegisterCanvasReadTools(server)
 	tools.RegisterCanvasWriteTools(server)
 	tools.RegisterCanvasConnectorTools(server)
+	tools.RegisterCanvasTableTools(server)
 	tools.RegisterCanvasBoardTools(server)
 	tools.RegisterProjectTools(server)
 	tools.RegisterFolderTools(server)

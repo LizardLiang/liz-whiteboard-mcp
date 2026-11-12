@@ -16,7 +16,7 @@ This is the **AI integration layer** for [liz-whiteboard](https://github.com/Liz
 ## Table of contents
 
 - [What it does](#what-it-does)
-- [The 51 MCP tools](#the-51-mcp-tools)
+- [The 53 MCP tools](#the-53-mcp-tools)
 - [How it works](#how-it-works)
 - [How to install & run](#how-to-install--run)
 - [Quick start (local, dev token)](#quick-start-local-dev-token)
@@ -40,7 +40,7 @@ Exposes the liz-whiteboard ER diagram as **MCP tools** so an LLM agent can:
 
 Reads go straight to the app's SQLite database; writes are sent to the live collaboration server over Socket.IO and broadcast to every connected user in real time. Every request is scoped to the authenticated user (project-membership checks).
 
-## The 51 MCP tools
+## The 53 MCP tools
 
 | Group | Tools |
 |---|---|
@@ -56,6 +56,7 @@ Reads go straight to the app's SQLite database; writes are sent to the live coll
 | Canvas read | `list_canvas_boards`, `get_canvas_board`, `get_canvas_summary` |
 | Canvas elements | `create_canvas_element`, `update_canvas_element`, `delete_canvas_element` |
 | Canvas connectors | `create_canvas_connector`, `update_canvas_connector` |
+| Canvas tables | `create_canvas_table`, `edit_canvas_table` |
 | Canvas boards | `create_canvas_board`, `update_canvas_board`, `delete_canvas_board` |
 | Projects | `create_project`, `update_project`, `delete_project` |
 | Folders | `create_folder`, `update_folder`, `delete_folder` |
@@ -105,6 +106,8 @@ Six behaviours are non-obvious and an agent calling these tools must know them.
 6. **`connector` and `group` are not valid kinds for `create_canvas_element`.** It accepts `rectangle`, `ellipse`, `diamond`, `triangle`, and `text` only. Connectors have their own pair of tools, because their `props` carry cross-field invariants a single generic union would make unreliable to fill. Groups are unsupported by design: their cascade and cycle integrity is a scene-level invariant the browser client repairs on load, and this server has no scene to check against.
 
 Connectors carry two further rules, both checked before anything is written. Each end takes exactly one form: either an element id (`sourceElementId` / `targetElementId`) or a free point (`sourcePoint` / `targetPoint`). Giving both forms for one end, or neither, is a validation error. A connector also cannot join an element to itself, so `sourceElementId` and `targetElementId` must differ. `create_canvas_connector` takes no `style`; set a connector's colour or stroke afterwards with `update_canvas_element`.
+
+Canvas tables have two tools. `create_canvas_table` takes `rows`, `columns` (at most 500 cells), and optional starting `cells` (row-major), `headerRow` (default true), and `columnWidths`. `edit_canvas_table` takes an ordered list of `changes` (1 to 200): `setText`, `insertRow`, `removeRow`, `insertColumn`, `removeColumn`, `resizeRow`, `resizeColumn`, `setHeaderRow`, `setFill`, and `setAlign`. Rows, columns, and cells are named by 0-based number, and the numbers are resolved against the stored table before each change. Only the browser can measure text, so the server estimates the row height a cell needs (CJK counted as wide), rounds up, and grows the row; it never shrinks one, and `resizeRow` fixes an estimate that is a line short. The list stops at the first refused change and returns `applied`, `failed`, and `skipped`; earlier changes stay applied. `get_canvas_summary` prints a table's header and the first 10 rows of cell text.
 
 Board lifecycle takes a different transport from element writes. `create_canvas_board`, `update_canvas_board`, and `delete_canvas_board` call the app's `POST /api/canvas-boards` route over HTTP (set `LIZ_CANVAS_BOARD_API_URL`), authenticated with the same collaboration JWT the socket path uses. Element writes stay on Socket.IO because open clients must re-render live; board creation has no co-viewing client to broadcast to. One consequence: `update_canvas_board` can move a board into a folder but cannot move it back to the project root, because an omitted `folderId` means "leave it where it is".
 
