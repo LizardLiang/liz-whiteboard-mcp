@@ -20,8 +20,8 @@ services:
       MCP_CLIENT_SECRET: ${MCP_CLIENT_SECRET:?set MCP_CLIENT_SECRET (see deploy/run.sh)}
       OAUTH_SIGNING_KEY_FILE: /run/oauth-private.pem
       OAUTH_SIGNING_KEY_KID: ${OAUTH_SIGNING_KEY_KID:-as-key}
-      # Token TTLs (seconds). Defaults: access=3600 (1 hr), refresh=604800 (7 days).
-      OAUTH_ACCESS_TOKEN_TTL: ${OAUTH_ACCESS_TOKEN_TTL:-3600}
+      # Token TTLs (seconds). Defaults: access=600 (10 min), refresh=604800 (7 days).
+      OAUTH_ACCESS_TOKEN_TTL: "600"
       OAUTH_REFRESH_TOKEN_TTL: ${OAUTH_REFRESH_TOKEN_TTL:-604800}
       # Password reset: Resend sends the email, Turnstile guards the request form.
       # Unset Turnstile keys make every reset request fail with CAPTCHA_FAILED.
